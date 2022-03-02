@@ -1,0 +1,159 @@
+# utility function
+import os
+import sys
+import math
+import pickle
+
+import pandas as pd
+import matplotlib
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+import torch
+
+
+def round_precision(x: float, precision: int = 0) -> float:
+    """精确四舍五入"""
+    val = x * 10**precision
+    int_part = math.modf(val)[1]
+    fractional_part = math.modf(val)[0]
+    out = 0
+    if fractional_part >= 0.5:
+        out = int_part + 1
+    else:
+        out = int_part
+    out = out / 10**precision
+    return out
+
+
+def try_gpu(i: int = 0) -> torch.device:
+    """如果存在，则返回gpu(i)，否则返回cpu()。"""
+    if torch.cuda.device_count() >= i + 1:
+        return torch.device(f'cuda:{i}')
+    return torch.device('cpu')
+
+
+def try_all_gpus() -> torch.device:
+    """返回所有可用的GPU，如果没有GPU，则返回[cpu(),]。"""
+    devices = [
+        torch.device(f'cuda:{i}') for i in range(torch.cuda.device_count())]
+    return devices if devices else [torch.device('cpu')]
+
+
+def read_pickle_file(file_path: str) -> dict:
+    """"""
+    if os.path.exists(file_path):
+        with open(file_path, 'rb') as f:
+            data_dict = pickle.load(f)
+        return data_dict
+
+
+def write_to_pickle(target_path: str, data_dict: dict) -> None:
+    """"""
+    if not os.path.exists(target_path):
+        with open(target_path, 'wb') as f:
+            pickle.dump(data_dict, f)
+    else:
+        print(f'Path Existed: {target_path}')
+        sys.exit(0)
+
+
+def write_to_txt(file_path: str, data) -> None:
+    """"""
+    if not os.path.exists(file_path):
+        with open(file_path, 'w', encoding='utf-8') as file:
+            print(data, file=file)
+    else:
+        with open(file_path, 'a', encoding='utf-8') as file:
+            print(data, file=file)
+
+
+def cell_data_data_dynamic_plot(cell_data_set_dict: dict, save_path: str = None) -> plt.Figure:
+    """"""
+    assert not (cell_data_set_dict == {})
+
+    # init plot fig
+    fig, ax = plt.subplots(5, 3, figsize=(18, 9))
+
+    # set column title
+    ax[0, 0].set_title('voltage')
+    ax[0, 1].set_title('current')
+    ax[0, 2].set_title('capacity')
+
+    # set row title
+    ax[0, 0].set_ylabel('ch1')
+    ax[1, 0].set_ylabel('ch2')
+    ax[2, 0].set_ylabel('ch3')
+    ax[3, 0].set_ylabel('dc')
+    ax[4, 0].set_ylabel('ch4')
+
+    # ax layout
+    #       | 1 voltage | 2 current | 3 capacity |
+    # | ch1 |
+    # | ch2 |   green/ normal
+    # | ch3 |   red  / abnormal
+    # | dc  |
+
+    # | ch4 |
+    num_of_cell = len(cell_data_set_dict)
+    with plt.ion():
+        with tqdm(total=num_of_cell) as f_bar:
+            # set f_bar description
+            f_bar.set_description('Cell Data Plotting:')
+            for temp_cell in iter(cell_data_set_dict):
+                temp_cell_dict = cell_data_set_dict[temp_cell]
+                temp_cell_grade = temp_cell_dict['Static'].iloc[-1].at['Grade']
+
+                # set line color
+                if temp_cell_grade != 'H':
+                    line_color = 'g'
+                elif temp_cell_grade == 'G':
+                    line_color = 'b'
+                else:
+                    line_color = 'r'
+
+                for temp_key in iter(temp_cell_dict.keys()):
+                    if temp_key != 'Static':
+                        temp_key_df = temp_cell_dict[temp_key].iloc[1:, :].astype('float')
+
+                        # default ax
+                        ax_c = 0
+                        ax_r = 0
+                        lw = 0.5
+                        if temp_key == 'Charge #1':
+                            ax_r = 0
+                        elif temp_key == 'Charge #2':
+                            ax_r = 1
+                        elif temp_key == 'Charge #3':
+                            ax_r = 2
+                        elif temp_key == 'Discharge':
+                            ax_r = 3
+                        elif temp_key == 'Charge #4':
+                            ax_r = 4
+                        else:
+                            raise ValueError
+
+                        # extract data
+                        time_stamp = temp_key_df.index.tolist()
+                        voltage = temp_key_df['voltage'].tolist()
+                        current = temp_key_df['current'].tolist()
+                        capacity = temp_key_df['capacity'].tolist()
+
+                        # plot voltage
+                        ax[ax_r, 0].plot(time_stamp, voltage, line_color, linewidth=lw)
+                        # plot current
+                        ax[ax_r, 1].plot(time_stamp, current, line_color, linewidth=lw)
+                        # plot capacity
+                        ax[ax_r, 2].plot(time_stamp, capacity, line_color, linewidth=lw)
+
+                # update tqdm bar
+                f_bar.update()
+    if save_path is not None:
+        if not os.path.exists(save_path):
+            fig.savefig(f'{save_path}', format='pdf')
+        else:
+            raise FileExistsError
+    return fig
+
+
+if __name__ == '__main__':
+    pass
