@@ -3,7 +3,9 @@ import os
 import sys
 import math
 import pickle
+from collections import Counter, OrderedDict
 
+import numpy as np
 import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
@@ -67,7 +69,71 @@ def write_to_txt(file_path: str, data) -> None:
             print(data, file=file)
 
 
-def cell_data_data_dynamic_plot(cell_data_set_dict: dict, save_path: str = None) -> plt.Figure:
+def cell_data_processed_dynamic_plot(cell_data_set_dict: dict, save_path: str = None) -> plt.Figure:
+    """"""
+    first_item = cell_data_set_dict[list(cell_data_set_dict.keys())[0]]
+    cell_data_dict_key = list(first_item.keys())
+    if 'Static' in cell_data_dict_key:
+        cell_data_dict_key.remove('Static')
+
+    # fig init
+    fig, ax = plt.subplots(5, 3, figsize=(18, 9))
+
+    # set column title
+    ax[0, 0].set_title('voltage')
+    ax[0, 1].set_title('current')
+
+    # set row title
+    ax[0, 0].set_ylabel('ch1')
+    ax[1, 0].set_ylabel('ch2')
+    ax[2, 0].set_ylabel('ch3')
+    ax[3, 0].set_ylabel('dc')
+    ax[4, 0].set_ylabel('ch4')
+
+    for cell in iter(cell_data_set_dict):
+        temp_cell_data = cell_data_set_dict[cell]
+        for key in iter(cell_data_dict_key):
+            temp_para_data = temp_cell_data[key]
+            temp_key_split = key.split('-', 1)
+            temp_dyim = temp_key_split[0]
+            temp_para = temp_key_split[1]
+            # row set
+
+            if temp_dyim == 'Charge #1':
+                id_row = 0
+            elif temp_dyim == 'Charge #2':
+                id_row = 1
+            elif temp_dyim == 'Charge #3':
+                id_row = 2
+            elif temp_dyim == 'Discharge':
+                id_row = 3
+            elif temp_dyim == 'Charge #4':
+                id_row = 4
+            else:
+                raise ValueError
+
+            # col set
+            if temp_para == 'voltage':
+                id_col = 0
+            elif temp_para == 'current':
+                id_col = 1
+            else:
+                raise ValueError
+
+            temp_time = list(temp_para_data.index)
+            temp_data = list(temp_para_data.values)
+            with plt.ion():
+                ax[id_row, id_col].plot(temp_time, temp_data, linewidth=0.5)
+
+    if save_path is not None:
+        if not os.path.exists(save_path):
+            fig.savefig(f'{save_path}', format='pdf')
+        else:
+            raise FileExistsError
+    return fig
+
+
+def cell_data_selected_dynamic_plot(cell_data_set_dict: dict, save_path: str = None) -> plt.Figure:
     """"""
     assert not (cell_data_set_dict == {})
 
@@ -98,7 +164,7 @@ def cell_data_data_dynamic_plot(cell_data_set_dict: dict, save_path: str = None)
     with plt.ion():
         with tqdm(total=num_of_cell) as f_bar:
             # set f_bar description
-            f_bar.set_description('Cell Data Plotting:')
+            f_bar.set_description('Cell Selected Plotting:')
             for temp_cell in iter(cell_data_set_dict):
                 temp_cell_dict = cell_data_set_dict[temp_cell]
                 temp_cell_grade = temp_cell_dict['Static'].iloc[-1].at['Grade']
@@ -153,6 +219,87 @@ def cell_data_data_dynamic_plot(cell_data_set_dict: dict, save_path: str = None)
         else:
             raise FileExistsError
     return fig
+
+
+def dict_slice(adict: dict, start: int, end: int) -> dict:
+    """"""
+    keys = adict.keys()
+    dict_slice = {}
+    for k in list(keys)[start:end]:
+        dict_slice[k] = adict[k]
+    return dict_slice
+
+
+def plot_cluster_label(para_pad_arr: np.array, labels: np.array) -> plt.Figure:
+    """"""
+    # fig init
+    fig, ax = plt.subplots()
+    size = para_pad_arr.shape
+    x_ax = [x for x in range(size[1])]
+    lw = 1
+
+    # set label color and legend
+    n_counter = Counter(labels)
+    labels_keys = list(n_counter.keys())
+
+    # set color
+    n_color = len(labels_keys)
+    init_color = 0
+    color_dict = {}
+    # line_dict = {}
+    for key in labels_keys:
+        # color dict init
+        temp_color = 'C' + str(init_color)
+        color_dict.update({key: temp_color})
+        init_color += 1
+
+        # # line dict init
+        # line_dict.update({key: []})
+    with plt.ion():
+        with tqdm(total=size[0]) as bar:
+            bar.set_description('Plotting Labeled Data')
+            for row in iter(range(size[0])):
+                temp_label = labels[row]
+                line, = ax.plot(x_ax, para_pad_arr[row, :],
+                                color=color_dict[temp_label],
+                                linewidth=lw,
+                                label=temp_label)
+                bar.update()
+        # set legend
+        hd, lb = ax.get_legend_handles_labels()
+        by_label = OrderedDict(zip(lb, hd))
+        ax.legend(by_label.values(), by_label.keys())
+    return fig
+
+
+def plot_maj_min_divide_line(updated_centers_df: pd.DataFrame,
+                             centers: np.array,
+                             n_min_c: int,
+                             n_maj_c: int) -> plt.Figure:
+    """"""
+    fig, ax = plt.subplots()
+    size = centers.shape
+    x_ax = [x for x in range(size[1])]
+    lw = 0.1
+    with plt.ion():
+        for idx in iter(list(updated_centers_df.index)):
+            temp_data = np.squeeze(updated_centers_df.loc[[idx], :].values, axis=0)
+            if idx == n_min_c:
+                ax.plot(x_ax, temp_data, 'g', label='min border', linewidth=lw)
+            if idx == n_maj_c:
+                ax.plot(x_ax, temp_data, 'r', label='maj border', linewidth=lw)
+            if idx == -1:
+                ax.plot(x_ax, temp_data, 'b', label='divide line', linewidth=lw)
+            else:
+                # ax.plot(x_ax, temp_data, 'y', linewidth=lw)
+                pass
+
+        # set legend
+        hd, lb = ax.get_legend_handles_labels()
+        by_label = OrderedDict(zip(lb, hd))
+        ax.legend(by_label.values(), by_label.keys())
+        # plt.show(block=True)
+        return fig
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 """"""
 #
 #
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 #
@@ -20,7 +21,6 @@ class CovEmbedding(nn.Module):
     def forward(self, in_data) -> torch.Tensor:
         """"""
         in_data = self.Cov0(in_data)
-        print(in_data.shape)
         # in_data = self.Cov1(in_data)
         # in_data = self.Cov2(in_data)
         out_data = in_data
@@ -34,7 +34,7 @@ if __name__ == '__main__':
 
     import utility_function
 
-    loaded_data_list_dict = utility_function.read_pickle_file('.\\pik\\cell_data_list.pickle')
+    loaded_data_list_dict = utility_function.read_pickle_file('.\\pik\\cell_data_list_layernoraml.pickle')
     m_model = CovEmbedding()
 
     for temp_data_type in loaded_data_list_dict.keys():
@@ -45,16 +45,15 @@ if __name__ == '__main__':
 
         # out lists
         out_list = []
-        for temp_cell_data in temp_data_type_list:
-            temp_tensor = torch.tensor(temp_cell_data.values, dtype=torch.float)
-            print(temp_tensor.shape)
-            trans_temp_tensor = temp_tensor.expand(1, 1, -1)
-            target = m_model(trans_temp_tensor)
-            print(target.shape)
+        with tqdm(total=len(temp_data_type_list)) as bar:
+            for temp_cell_data in temp_data_type_list:
+                temp_tensor = torch.tensor(temp_cell_data.values, dtype=torch.float)
+                trans_temp_tensor = temp_tensor.expand(1, 1, -1)
+                target = m_model(trans_temp_tensor)
 
-            out = target.detach().squeeze(0).squeeze(0)
-            out_list.append(pd.Series(out))
-
+                out = target.detach().squeeze(0).squeeze(0)
+                out_list.append(pd.Series(out))
+                bar.update()
         # concat out into df
         temp_out_in_df = pd.concat(out_list, axis=1)
         p = 1

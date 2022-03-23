@@ -2,14 +2,12 @@
 import os
 import sys
 import math
+from datetime import datetime
 
 # third party import
 import numpy as np
-import torch.nn.functional as F
 import pandas as pd
 from tqdm import tqdm
-import matplotlib
-import matplotlib.pyplot as plt
 
 # app specific import
 import utility_function
@@ -23,13 +21,20 @@ class DataPreProcess(object):
                  file_path: str,
                  data_type: tuple,
                  std_type: str = None,
-                 resampling_type: str = None) -> None:
+                 resampling_type: str = None,
+                 data_write_flag: bool = False,
+                 data_plt_flag: bool = False) -> None:
+
         self.data_file_path = file_path
         self.data_type = data_type
         self.std_type = std_type
         self.resampling_type = resampling_type
         self.current_cell_name = None
         self.refined_cell_data_dict = None
+        self.data_write_flag = data_write_flag
+        self.data_plt_flag = data_plt_flag
+
+        self.current_datetime = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
 
     def data_process(self) -> None:
         """"""
@@ -37,7 +42,7 @@ class DataPreProcess(object):
             file_list = os.listdir(self.data_file_path)
             with tqdm(total=len(file_list)) as f_bar:
                 # set f_bar description
-                f_bar.set_description('Cell Data Pre-Processing:')
+                f_bar.set_description('Cell Data Pre-Processing')
                 # G_num = 166
                 # H_num = 2088
 
@@ -54,6 +59,7 @@ class DataPreProcess(object):
 
                 # cell loop
                 cell_set = {}
+                norm_cell_set = {}
                 for temp_file_name in iter(file_list):
                     self.current_cell_name = os.path.splitext(temp_file_name)[0]
                     temp_file_path = os.path.join(self.data_file_path, temp_file_name)
@@ -62,9 +68,7 @@ class DataPreProcess(object):
                     if not (temp_cell_grade in ['G', 'H']):
                         ver_cell_dict = self.cell_data_verification(temp_cell_data_dict)
                         if ver_cell_dict != {}:
-                            # update cell_set
                             cell_set.update({self.current_cell_name: ver_cell_dict})
-
                             # | Type     | used Parameter |
                             # | Charge 1 | voltage        |
                             # | Charge 2 | voltage        |
@@ -73,15 +77,49 @@ class DataPreProcess(object):
                             # | Charge 4 | voltage & current |
 
                             # append data
-                            self.cell_data_append(ver_cell_dict, self.refined_cell_data_dict, norm_type='LayerStd')
+                            ver_norm_cell_dict = self.cell_data_append(ver_cell_dict,
+                                                                       self.refined_cell_data_dict,
+                                                                       norm_type=self.std_type,
+                                                                       is_norm_orig=True)
 
+                            # update cell_set
+                            if ver_norm_cell_dict != {}:
+                                norm_cell_set.update({self.current_cell_name: ver_norm_cell_dict})
                     # update tqdm bar
                     f_bar.update()
-                # utility_function.write_to_pickle('.\\pik\\cell_set.pickle', cell_set)
-                utility_function.write_to_pickle('.\\pik\\cell_data_list_layernoraml.pickle',
-                                                 self.refined_cell_data_dict)
-                # cell_set_fig = utility_function.cell_data_data_dynamic_plot(cell_set,
-                #                                                             '.\\images\\verified_data_set.pdf')
+
+                if self.data_write_flag:
+                    write_file_name = self.current_datetime + '_Cell_set'
+                    if self.std_type is not None:
+                        write_file_name += f'_{self.std_type}'
+                    if self.resampling_type is not None:
+                        write_file_name += f'_{self.resampling_type}'
+                    write_file_name += '.pickle'
+                    utility_function.write_to_pickle(os.path.join('.', 'pik', write_file_name),
+                                                     norm_cell_set)
+                if self.data_plt_flag:
+                    # selected data plot
+                    fig_file_name = self.current_datetime + '_Cell_Selected_Plot'
+                    if self.std_type is not None:
+                        fig_file_name += f'_{self.std_type}'
+                    if self.resampling_type is not None:
+                        fig_file_name += f'_{self.resampling_type}'
+                    fig_file_name += '.pdf'
+                    cell_set_fig = utility_function.cell_data_selected_dynamic_plot(cell_set,
+                                                                                    os.path.join('.',
+                                                                                                 'images',
+                                                                                                 fig_file_name))
+                    # processed data plot
+                    fig_file_name = self.current_datetime + '_Cell_Processed_Plot'
+                    if self.std_type is not None:
+                        fig_file_name += f'_{self.std_type}'
+                    if self.resampling_type is not None:
+                        fig_file_name += f'_{self.resampling_type}'
+                    fig_file_name += '.pdf'
+                    cell_set_fig = utility_function.cell_data_processed_dynamic_plot(norm_cell_set,
+                                                                                     os.path.join('.',
+                                                                                                  'images',
+                                                                                                  fig_file_name))
 
            # cell_data_df_dict init
            #  cell_data_df_dict = {}
@@ -247,8 +285,11 @@ class DataPreProcess(object):
     def cell_data_append(self,
                          ver_dict: dict,
                          refined_dict: dict,
-                         norm_type: str = None):
+                         norm_type: str = None,
+                         is_norm_orig: bool = False) -> dict:
         """"""
+
+        temp_norm_orig_dict= {}
         for temp_data_type in iter(ver_dict):
             if temp_data_type != 'Static':
                 temp_verified_cell_data_df = ver_dict[temp_data_type]
@@ -257,18 +298,29 @@ class DataPreProcess(object):
                     temp_cell_voltage_data = temp_verified_cell_data_df['voltage']
                     temp_cell_voltage_data = DataPreProcess.data_normal(temp_cell_voltage_data, norm_type)
                     refined_dict[f'{temp_data_type}-voltage'].append(temp_cell_voltage_data)
+                    if is_norm_orig:
+                        temp_norm_orig_dict.update({f'{temp_data_type}-voltage': temp_cell_voltage_data})
                 elif temp_data_type in ['Charge #3', 'Charge #4']:
                     # get voltage data
                     temp_cell_voltage_data = temp_verified_cell_data_df['voltage']
                     temp_cell_voltage_data = DataPreProcess.data_normal(temp_cell_voltage_data, norm_type)
                     refined_dict[f'{temp_data_type}-voltage'].append(temp_cell_voltage_data)
+                    if is_norm_orig:
+                        temp_norm_orig_dict.update({f'{temp_data_type}-voltage': temp_cell_voltage_data})
 
                     # get current data
                     temp_cell_current_data = temp_verified_cell_data_df['current']
                     temp_cell_current_data = DataPreProcess.data_normal(temp_cell_current_data, norm_type)
                     refined_dict[f'{temp_data_type}-current'].append(temp_cell_current_data)
+                    if is_norm_orig:
+                        temp_norm_orig_dict.update({f'{temp_data_type}-current': temp_cell_current_data})
                 else:
                     raise ValueError
+            else:
+                if is_norm_orig:
+                    temp_norm_orig_dict.update({f'{temp_data_type}': ver_dict[temp_data_type]})
+        return temp_norm_orig_dict
+
 
     @staticmethod
     def data_normal(data: pd.Series, norm_type: str = None) -> pd.Series:
@@ -278,6 +330,11 @@ class DataPreProcess(object):
                 temp_mean = data.mean()
                 temp_std = data.std()
                 temp_cell_voltage_data = (data - temp_mean) / temp_std
+            elif norm_type == 'MinMax':
+                temp_max = data.max()
+                temp_min = data.min()
+                temp_cell_voltage_data = (data - temp_min) / (temp_max - temp_min)
+                pass
             else:
                 raise ValueError
         else:
@@ -286,15 +343,15 @@ class DataPreProcess(object):
 
 
 if __name__ == '__main__':
-    data_file_base = 'D:\\workspace\\battery_dataset\\2600P-01_DataSet\\organized_data'
+    data_file_base = 'D:\\workspace\\battery_dataset\\2600P-01_DataSet\\organized_data\\test_cell_data'
     curr_file_type = 'pickle'
     data_file_path = os.path.join(data_file_base, curr_file_type)
 
     # ('Static', 'Charge #1', 'Charge #2', 'Charge #3', 'Discharge', 'Charge #4')
     curr_data_type = ('Charge #1', 'Charge #2', 'Discharge', 'Charge #3')
 
-    # ('LayerNormal', 'LocalMinMax', GlobalMinMax, 'Standardization')
-    m_std_type = 'LayerNormal'
+    # ('LayerStd', 'MinMax')
+    m_std_type = 'MinMax'
 
     # (OverSampling, UnderSampling)
     # OverSampling: 'Random', 'SMOTE', 'ADASYN'
@@ -303,9 +360,11 @@ if __name__ == '__main__':
     m_resampling_type = ('', '')
 
     # class init
-    m_DataPreProcess = DataPreProcess(data_file_path, curr_data_type)
-
+    m_DataPreProcess = DataPreProcess(data_file_path,
+                                      curr_data_type,
+                                      m_std_type,
+                                      data_write_flag=True,
+                                      data_plt_flag=True)
     # run
     m_DataPreProcess.data_process()
-
     sys.exit(0)
