@@ -1,6 +1,7 @@
 # std import
 from datetime import datetime
 import random
+import math
 from collections import Counter, OrderedDict
 
 # third party import
@@ -437,6 +438,67 @@ class DataSetLabel(object):
 
         return formed_data_set_cell_dict
 
+    def sampling_random_token(self,
+                              len_for_token: int,
+                              data_arr: dict) -> np.array:
+        """"""
+        # sampling random token
+        tokenize_data_list = []
+        for key, value in data_arr.items():
+            if key not in ['Labels', 'DataSetIndex']:
+                temp_para_arr = value
+                for row_data in iter(temp_para_arr):
+                    temp_tokenize_data = self.tokenize_no_pad(row_data, len_for_token)
+                    tokenize_data_list.append(temp_tokenize_data)
+
+        # concata tokenize data
+        concat_tokenize_data = np.concatenate(tokenize_data_list, axis=0)
+        np.random.shuffle(concat_tokenize_data)
+
+        return concat_tokenize_data
+
+    def sampling_random_para(self,
+                             data_arr: dict) -> np.array:
+        """"""
+        # sampling random token
+        rnd_para_data_dict = {}
+        for key, value in data_arr.items():
+            if key not in ['Labels', 'DataSetIndex']:
+                temp_para_arr = value
+                np.random.shuffle(temp_para_arr)
+                rnd_para_data_dict.update({key: temp_para_arr})
+
+        rnd_para_data_dict['ch1v'] = rnd_para_data_dict['Charge #1-voltage']
+        rnd_para_data_dict['ch2v'] = rnd_para_data_dict['Charge #2-voltage']
+        rnd_para_data_dict['dcv'] = rnd_para_data_dict['Discharge-voltage']
+        rnd_para_data_dict['ch3v'] = rnd_para_data_dict['Charge #3-voltage']
+        rnd_para_data_dict['ch3c'] = rnd_para_data_dict['Charge #3-current']
+
+        del rnd_para_data_dict['Charge #1-voltage']
+        del rnd_para_data_dict['Charge #2-voltage']
+        del rnd_para_data_dict['Discharge-voltage']
+        del rnd_para_data_dict['Charge #3-voltage']
+        del rnd_para_data_dict['Charge #3-current']
+
+        return rnd_para_data_dict
+
+    def tokenize_no_pad(self,
+                        in_data: np.array,
+                        t_len: int) -> np.array:
+        """"""
+        in_temp = in_data
+        d_size = in_temp.shape
+        assert d_size[0] > t_len
+        r_mod = d_size[0] % t_len
+        if r_mod != 0:
+            pad_num = 0
+            num_of_padding = t_len - r_mod
+            pad_arr = np.ones(num_of_padding) * pad_num
+            in_temp = np.concatenate((in_temp, pad_arr))
+        out_data = np.reshape(in_temp, (-1, t_len))
+        num_of_token = out_data.shape[0]
+
+        return out_data
 
 class CellDataLoader(Dataset):
     """"""
@@ -463,14 +525,16 @@ class CellDataLoader(Dataset):
                           type_data_set: str,
                           batch_sz: int,
                           is_shuffle: bool,
-                          num_of_worker: int) -> DataLoader:
+                          num_of_worker: int,
+                          pin_memory: bool) -> DataLoader:
         """"""
         data_set = cls(data_dict, type_data_set)
         data_loader = DataLoader(data_set,
                                  batch_size=batch_sz,
                                  shuffle=is_shuffle,
                                  num_workers=num_of_worker,
-                                 pin_memory=True)
+                                 pin_memory=pin_memory,
+                                 drop_last=True)
         return data_loader
 
 
@@ -501,9 +565,10 @@ if __name__ == '__main__':
 
     # run
     # m_data_label.main_data_label_all()
-    m_data_file_path = '.\\pik\\test_22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+    m_data_file_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels.pickle'
     m_data_dict = utility_function.read_pickle_file(m_data_file_path)
-
+    m_random_token = m_data_label.sampling_random_token(32, m_data_dict)
+    # m_random_para = m_data_label.sampling_random_para(m_data_dict)
     # temp_data_dict = {}
     # for key in m_data_dict:
     #     temp_dataset = m_data_dict[key]
@@ -512,8 +577,8 @@ if __name__ == '__main__':
 
     # formed_dict = m_data_label.form_data_set_cell_dict(m_data_dict)
     # ('pretrain', 'train', 'val', 'test')
-    m_data_loader = CellDataLoader.creat_data_loader(m_data_dict, 'pretrain', 32, True, 1)
-
-    for i, data in enumerate(m_data_loader):
-        temp_data = data
+    # m_data_loader = CellDataLoader.creat_data_loader(m_data_dict, 'pretrain', 32, True, 1, True)
+    #
+    # for i, data in enumerate(m_data_loader):
+    #     temp_data = data
     sys.exit(0)

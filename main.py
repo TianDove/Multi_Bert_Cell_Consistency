@@ -1,104 +1,63 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import os
-import sys
-import time
-
-from tqdm import tqdm
-import matplotlib
-import matplotlib.pyplot as plt
-
-import utility_function
-
-
-def fib(n: int, w: int = 0):
-  pass
-
 
 if __name__ == '__main__':
-    data_file_base = 'D:\\workspace\\battery_dataset\\2600P-01_DataSet\\organized_data\\'
-    curr_file_type = 'pickle'
-    data_file_path = os.path.join(data_file_base, curr_file_type)
-    cell_file_list = os.listdir(data_file_path)
 
-    # init plot fig
-    fig, ax = plt.subplots(5, 3, figsize=(18, 9))
+    # std import
+    import os
+    import sys
+    from datetime import datetime
 
-    # set column title
-    ax[0, 0].set_title('voltage')
-    ax[0, 1].set_title('current')
-    ax[0, 2].set_title('capacity')
+    # third party import
+    import numpy as np
+    import torch
+    from torch.utils.tensorboard import SummaryWriter
 
-    # set row title
-    ax[0, 0].set_ylabel('ch1')
-    ax[1, 0].set_ylabel('ch2')
-    ax[2, 0].set_ylabel('ch3')
-    ax[3, 0].set_ylabel('dc')
-    ax[4, 0].set_ylabel('ch4')
+    # app specific import
+    import utility_function
+    import dataset_and_dataloader
+    import opt
+    import model_define
+    # import run
 
-    # ax layout
-    #       | 1 voltage | 2 current | 3 capacity |
-    # | ch1 |
-    # | ch2 |   green/ normal
-    # | ch3 |   red  / abnormal
-    # | dc  |
-    # | ch4 |
-    with plt.ion():
-        with tqdm(total=len(cell_file_list)) as f_bar:
-            # set f_bar description
-            f_bar.set_description('Cell Data Plotting:')
-            for temp_cell_file in iter(cell_file_list):
-                temp_file_path = os.path.join(data_file_path, temp_cell_file)
-                temp_cell_data_dict = utility_function.read_pickle_file(temp_file_path)
-                temp_cell_grade = temp_cell_data_dict['Static'].iloc[-1].at['Grade']
+    # set the random seed
+    RANDOM_SEED = 42
+    np.random.seed(RANDOM_SEED)
+    torch.manual_seed(RANDOM_SEED)
+    os.environ['OMP_NUM_THREADS'] = '1'
 
-                # set line color
-                if temp_cell_grade != 'H':
-                    line_color = 'g'
-                else:
-                    line_color = 'r'
+    data_file_base = '.\\pik'
+    curr_file_name = 'test_22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+    m_data_file_path = os.path.join(data_file_base, curr_file_name)
+    m_data_dict = utility_function.read_pickle_file(m_data_file_path)
 
-                for temp_key in iter(temp_cell_data_dict.keys()):
-                    if temp_key != 'Static':
-                        temp_key_df = temp_cell_data_dict[temp_key].iloc[1:, :].astype('float')
-                        duplicated_droped_df = temp_key_df.drop_duplicates(subset='time', keep='last')
-                        aligned_df = duplicated_droped_df[duplicated_droped_df['time'] % 0.5 == 0.0]
-                        interpolated_df = aligned_df.interpolate(method='linear', axis=0)
+    # set the data set parameters
+    len_to_token = 16
+    batch_size = 32
+    is_shuffle = True
+    workers = 3
+    pin_memory = True
 
-                        # default ax
-                        ax_c = 0
-                        ax_r = 0
-                        lw = 0.5
-                        if temp_key == 'Charge #1':
-                            ax_r = 0
-                        elif temp_key == 'Charge #2':
-                            ax_r = 1
-                        elif temp_key == 'Charge #3':
-                            ax_r = 2
-                        elif temp_key == 'Discharge':
-                            ax_r = 3
-                        elif temp_key == 'Charge #4':
-                            ax_r = 4
-                        else:
-                            raise ValueError
+    # ('pretrain', 'train', 'val', 'test')
+    pretrain_loader = dataset_and_dataloader.CellDataLoader.creat_data_loader(m_data_dict, 'pretrain',
+                                                                              batch_size, is_shuffle,
+                                                                              workers, pin_memory)
+    train_loader = dataset_and_dataloader.CellDataLoader.creat_data_loader(m_data_dict, 'train',
+                                                                           batch_size, is_shuffle,
+                                                                           workers, pin_memory)
+    val_loader = dataset_and_dataloader.CellDataLoader.creat_data_loader(m_data_dict, 'val',
+                                                                         batch_size, is_shuffle,
+                                                                         workers, pin_memory)
+    test_loader = dataset_and_dataloader.CellDataLoader.creat_data_loader(m_data_dict, 'test',
+                                                                          batch_size, is_shuffle,
+                                                                          workers, pin_memory)
 
-                        # extract data
-                        time_stamp = interpolated_df['time'].tolist()
-                        voltage = interpolated_df['voltage'].tolist()
-                        current = interpolated_df['current'].tolist()
-                        capacity = interpolated_df['capacity'].tolist()
+    data_set_dict = {
+        'pretrain': pretrain_loader,
+        'train': train_loader,
+        'val': val_loader,
+        'test': test_loader
+    }
 
-                        # plot voltage
-                        ax[ax_r, 0].plot(time_stamp, voltage, line_color, linewidth=lw)
-                        # plot current
-                        ax[ax_r, 1].plot(time_stamp, current, line_color, linewidth=lw)
-                        # plot capacity
-                        ax[ax_r, 2].plot(time_stamp, capacity, line_color, linewidth=lw)
-
-                # update tqdm bar
-                f_bar.update()
-        # plt.savefig('./data_set.svg', format='svg')
-        # plt.savefig('./data_set.pdf', format='pdf')
     # end run
     sys.exit(0)
-

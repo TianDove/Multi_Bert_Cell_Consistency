@@ -302,5 +302,101 @@ def plot_maj_min_divide_line(updated_centers_df: pd.DataFrame,
         return fig
 
 
+class Tokenizer():
+    """"""
+    def __init__(self, token_tuple=(32, True, 16)):
+        """
+        token_tup = (t_len, overlap, step)
+        """
+        self.t_len = token_tuple[0]
+        self.overlap = token_tuple[1]
+        self.step = token_tuple[2]
+        self.detoken_len = None
+
+    def tokenize(self, in_data: np.array) -> np.array:
+        """"""
+        in_temp = in_data
+        d_size = in_temp.shape
+        assert d_size[0] > self.t_len
+        r_mod = d_size[0] % self.t_len
+
+        if not self.overlap:
+            if r_mod != 0:
+                pad_num = 0
+                num_of_padding = self.t_len - r_mod
+                pad_arr = np.ones(num_of_padding) * pad_num
+                in_temp = np.concatenate((in_temp, pad_arr))
+            out_data = np.reshape(in_temp, (-1, self.t_len))
+            num_of_token = out_data.shape[0]
+        else:
+            num_of_step = math.ceil((d_size[0] - (self.t_len - self.step)) / self.step)
+            self.detoken_len = (num_of_step - 1) * self.step + self.t_len
+            if (self.detoken_len % d_size[0]) != 0:
+                pad_num = 0
+                num_of_padding = self.detoken_len - d_size[0]
+                pad_arr = np.ones(num_of_padding) * pad_num
+                in_temp = np.concatenate((in_temp, pad_arr))
+            # overlap tokenize
+            out_data = np.zeros((num_of_step, self.t_len))
+            for stp in range(num_of_step):
+                index = stp * self.step
+                temp_token = in_temp[index:index + self.t_len]
+                out_data[stp, :] = temp_token
+            num_of_token = out_data.shape[0]
+        return out_data, num_of_token
+
+    def detokenize(self, in_data):
+        """"""
+        org_size = in_data.shape
+        if not self.overlap:
+            out_data = in_data.view(1, -1)
+        else:
+            num_of_token = org_size[0]
+            out_data = torch.zeros((num_of_token - 1) * self.step + self.t_len)
+            first_token = in_data[0, :]
+            out_data[0:self.t_len] = first_token  # put first token into out sequence
+            for i in range(1, num_of_token):
+                curr_token = in_data[i, :]  # get token from second token
+                curr_start_index = i * self.step
+                curr_end_index = curr_start_index + self.t_len
+                padded_curr_token = torch.zeros((num_of_token - 1) * self.step + self.t_len)
+                padded_curr_token[curr_start_index: curr_end_index] = curr_token
+                out_data += padded_curr_token
+                curr_mid_start_index = curr_start_index
+                curr_mid_end_index = curr_start_index + self.step
+                out_data[curr_mid_start_index: curr_mid_end_index] /= 2
+        return out_data
+
+    def token_wrapper(self, data, *args):
+        """"""
+        if args[0] == 'token':
+            assert (len(data.shape) == 1) and (type(data) is np.ndarray)
+            arr_token = self.tokenize(data)
+        elif args[0] == 'detoken':
+            # in_data is a tensor:(number of token, token length)
+            assert torch.is_tensor(data) and (len(data.shape) == 2)
+            arr_token = self.detokenize(data)
+        else:
+            raise Exception('Tokenize Mode Error.')
+        # convert data
+        re_data = arr_token
+        return re_data
+
+
+def intermedia_tensor_inspcetion(data: torch.tensor) -> np.array:
+    """"""
+    return data.detach().numpy()
+
+
+def intermedia_data_dict_inspcetion(data_dict: dict) -> np.array:
+    """"""
+    # data tensor visualization
+    tensor_list = []
+    for key, data in iter(data_dict.items()):
+        tensor_list.append(data.detach().numpy())
+    vis_arr = np.concatenate(tensor_list, axis=1)
+    return vis_arr
+
+
 if __name__ == '__main__':
     pass
