@@ -2,13 +2,14 @@
 #
 import math
 import random
+import copy
 
 #
 from tqdm import tqdm
 import torch
 import torch.nn as nn
 #
-
+import utility_function
 
 # define token embedding
 class CovTokenEmbedding(nn.Module):
@@ -70,17 +71,15 @@ class MaskLM(nn.Module):
                                  nn.Linear(embedding_token_dim // 2, in_len))
 
     def forward(self, X, pred_positions):
-        num_pred_positions = pred_positions.shape[1]
-        pred_positions = pred_positions.reshape(-1)
-        batch_size = X.shape[0]
-        batch_idx = torch.arange(0, batch_size)
-        # 假设batch_size=2，num_pred_positions=3
-        # 那么batch_idx是np.array（[0,0,0,1,1]）
-        batch_idx = torch.repeat_interleave(batch_idx, num_pred_positions)
-        masked_X = X[batch_idx, pred_positions]
-        masked_X = masked_X.reshape((batch_size, num_pred_positions, -1))
-        mlm_Y_hat = self.mlp(masked_X)
-        return mlm_Y_hat
+        temp_token_for_pred = []
+        for idx in iter(pred_positions):
+            pos = idx[0]
+            temp_token = X[:, pos, :].unsqueeze(1)
+            temp_token_for_pred.append(temp_token)
+        temp_token_for_pred = torch.cat(temp_token_for_pred, dim=1)
+
+        out_data = self.mlp(temp_token_for_pred)
+        return out_data
 
 
 class TokenSubstitution(nn.Module):
@@ -128,6 +127,8 @@ class TokenSubstitution(nn.Module):
 
         mlm_positions_and_labels_dict = {}
         for para_name, para_value in iter(in_data.items()):
+
+            mlm_positions_and_labels_dict[para_name] = []
             _temp_para_array = para_value  # B * L * T
             temp_pred_positions_and_labels_list = []
 
@@ -137,11 +138,10 @@ class TokenSubstitution(nn.Module):
                 mask_type = None
 
             for t_idx in range(_temp_para_array.shape[1]):
+                temp_mask_token = None
+                temp_org_token = _temp_para_array[:, t_idx, :].unsqueeze(1)
+                temp_pred_positions_and_labels = [t_idx, temp_org_token]  # (position, label)
                 if random.random() < mask_rate:
-                    temp_mask_token = None
-                    temp_org_token = _temp_para_array[:, t_idx, :].unsqueeze(1)
-                    temp_pred_positions_and_labels = [t_idx, temp_org_token]  # (position, label)
-                    temp_pred_positions_and_labels_list.append(temp_pred_positions_and_labels)
                     if random.random() < 0.8:
                         # 80%的时间：将词替换为“<mask>”词元
                         temp_mask_token = mask_token
@@ -170,8 +170,8 @@ class TokenSubstitution(nn.Module):
                                                                 name=mask_type)
                         temp_para_df = temp_para_df.rename(index={t_idx: mask_type})
 
-            # append idx and label
-            mlm_positions_and_labels_dict[para_name] = temp_pred_positions_and_labels_list
+                    # append idx and label
+                    mlm_positions_and_labels_dict[para_name].append(temp_pred_positions_and_labels)
             if visulize:
                 temp_mask_df_list.append(temp_para_df)
 
@@ -181,7 +181,7 @@ class TokenSubstitution(nn.Module):
 
     def forward(self,
                 in_data,
-                mlm_positions_and_labels_dict,
+                positions_and_labels_dict,
                 num_cls,
                 mask_df_list,
                 visulize=True):
@@ -205,13 +205,10 @@ class TokenSubstitution(nn.Module):
                                                                            dtype=torch.long))
             sp_token_embedding_dict[sp_token_key] = temp_sp_token_embedding
 
-        token_size = (1, self.in_len)
-
         init_segment_index = [0]
         segment_index = []
 
         temp_sequence = []
-        para_key = list(in_data.keys())
 
         if visulize:
             temp_mask_df_list = []
@@ -227,45 +224,28 @@ class TokenSubstitution(nn.Module):
                 if num_cls != 0:
                     for i in range(num_cls):
                         temp_segment_list.append(sp_token_embedding_dict['CLS'].repeat(self.batch_size, 1, 1))
-
                         if visulize:
                             temp_para_df_list.append(
                                 pd.DataFrame(data=sp_token_embedding_dict['CLS'].cpu().detach().numpy(),
                                              index=['CLS']))
                 else:
                     temp_segment_list.append(sp_token_embedding_dict['CLS'].repeat(self.batch_size, 1, 1))
-
                     if visulize:
                         temp_para_df_list.append(
                             pd.DataFrame(data=sp_token_embedding_dict['CLS'].cpu().detach().numpy(),
                                          index=['CLS']))
 
                 temp_segment_list.append(sp_token_embedding_dict['SOS'].repeat(self.batch_size, 1, 1))
-
                 if visulize:
                     temp_para_df_list.append(
                         pd.DataFrame(data=sp_token_embedding_dict['SOS'].cpu().detach().numpy(),
                                      index=['SOS']))
 
-                for mlm_para_name, mlm_para_list in iter(mlm_positions_and_labels_dict.items()):
-                    if mlm_para_list != []:
-                        for mlm_idx in iter(mlm_para_list):
-                            if num_cls != 0:
-                                mlm_idx[0] += 2
-                            else:
-                                mlm_idx[0] += num_cls + 1
             temp_segment_list.append(para_batch)
             if visulize:
-                temp_para_df_list.append(mask_df_list[init_segment_index[0] - 1])
+                temp_para_df_list.append(mask_df_list[init_segment_index[0]])
 
             temp_segment_shape = para_batch.shape
-
-            para_key.remove(para_name)
-            for temp_key in iter(para_key):
-                temp_mlm_para_list = mlm_positions_and_labels_dict[temp_key]
-                if temp_mlm_para_list != []:
-                    for mlm_idx in iter(temp_mlm_para_list):
-                        mlm_idx[0] += temp_segment_shape[1]
 
             if init_segment_index[0] != (self.max_seg - 1):
                 temp_segment_list.append(sp_token_embedding_dict['STP'].repeat(self.batch_size, 1, 1))
@@ -275,11 +255,6 @@ class TokenSubstitution(nn.Module):
                         pd.DataFrame(data=sp_token_embedding_dict['STP'].cpu().detach().numpy(),
                                      index=['STP']))
 
-                for temp_key in iter(para_key):
-                    temp_mlm_para_list = mlm_positions_and_labels_dict[temp_key]
-                    if temp_mlm_para_list != []:
-                        for mlm_idx in iter(temp_mlm_para_list):
-                            mlm_idx[0] += 1
             else:
                 temp_segment_list.append(sp_token_embedding_dict['EOS'].repeat(self.batch_size, 1, 1))
 
@@ -305,51 +280,37 @@ class TokenSubstitution(nn.Module):
         if visulize:
             temp_para_mask_df_all = pd.concat(temp_mask_df_list, axis=0)
 
+            temp_pos_label_list = []
+            for key, val in iter(positions_and_labels_dict.items()):
+                for i in iter(val):
+                    temp_pos_label_list.append(i)
+
             index_list = temp_para_mask_df_all.index.tolist()
+
+            idx = 0
             for i, index in enumerate(index_list):
                 if index in ['mask', 'rnd', 'org']:
-                    pass
+                    temp_pos_label_list[idx][0] = i
+                    idx += 1
 
-        return torch.cat(temp_sequence, dim=1), segment_index, mlm_positions_and_labels_dict
+        return torch.cat(temp_sequence, dim=1), segment_index, temp_pos_label_list, temp_para_mask_df_all
 
 
-class MyMulitBERT(nn.Module):
+class MyBertEncoder(nn.Module):
     """"""
     def __init__(self,
-                 token_tuple: (int, bool, int),  # (token_len, over_lap, step)
-                 rnd_token_table,
-                 rnd_para_table,
-                 batch_size: int,
-                 embedding_token_dim: int,
                  max_num_seg: int,
-                 encoder_para: (int, int, int),  # (layers, nhead, hidden_size)
-                 ):
+                 max_num_token: int,
+                 embedding_token_dim: int,
+                 encoder_para: tuple,):  # (layers, nhead, hidden_size)
         """"""
-        super(MyMulitBERT, self).__init__()
-
-        self.batch_size = batch_size
-        self.rnd_token_table = torch.from_numpy(rnd_token_table).to(dtype=torch.float32)
-        self.num_cls = None
-
-        self.rnd_para_table = {}
-        for para_name, para_table in iter(rnd_para_table.items()):
-            self.rnd_para_table[para_name] = torch.from_numpy(para_table).to(dtype=torch.float32)
-
-        self.tokenizer = utility_function.Tokenizer(token_tuple)
-
+        super(MyBertEncoder, self).__init__()
         self.token_embedding = CovTokenEmbedding(1)
-
-        self.token_substitution = TokenSubstitution(token_tuple[0],
-                                                    max_num_seg,
-                                                    embedding_token_dim,
-                                                    self.batch_size,
-                                                    self.rnd_token_table)
-
         self.segment_embedding = nn.Embedding(num_embeddings=max_num_seg,
                                               embedding_dim=embedding_token_dim,
-                                              max_norm=1.0,)
+                                              max_norm=1.0, )
 
-        self.position_embedding = nn.Parameter(torch.rand(1, 1000, embedding_token_dim))  # (0, 1)
+        self.position_embedding = nn.Parameter(torch.rand(1, max_num_token, embedding_token_dim))  # (0, 1)
 
         self.encoder_blk = nn.Sequential()
         for i in range(encoder_para[0]):
@@ -358,53 +319,117 @@ class MyMulitBERT(nn.Module):
                                                                                   dim_feedforward=encoder_para[2],
                                                                                   activation='gelu',
                                                                                   batch_first=True))
-        # MASK LM
-        self.mask_lm = MaskLM(token_tuple[0], embedding_token_dim)
-        self.mask_lm_loss = nn.MSELoss()
 
-        # next_para_pred
-        self.next_para_pred = NextParameterPred(embedding_token_dim)
-        self.next_para_pred_loss = nn.CrossEntropyLoss()
+    def forward(self,
+                in_data,
+                segments,
+                batch_size):  # in_data: (batch_size, num_token, in_len)
+        """"""
+
+        # token embedding
+        token_embedding_list = []
+        for token_idx in range(in_data.shape[1]):
+            temp_token_embedding = self.token_embedding(in_data[:, token_idx, :].unsqueeze(1))
+            token_embedding_list.append(temp_token_embedding)
+        out_data = torch.cat(token_embedding_list, dim=1)
+
+        # get segments embedding
+        segments_embedding = self.segment_embedding(torch.tensor(segments,
+                                                                 dtype=torch.long)).unsqueeze(0)
+
+        seg_pos_embedding = segments_embedding + self.position_embedding[:, 0:len(segments), :]
+
+        seg_pos_embedding = seg_pos_embedding.repeat(batch_size, 1, 1)
+
+        # add position embedding and segment embedding to the data
+        out_data = out_data + seg_pos_embedding
+
+        # encoder input B * L * EB
+        ecd_out = self.encoder_blk(out_data)
+
+        return ecd_out
+
+
+class MyMspMaskToken(nn.Module):
+    """"""
+    def __init__(self,
+                 token_tuple: (int, bool, int),  # (token_len, over_lap, step)
+                 rnd_token_table,
+                 rnd_para_table,
+                 batch_size: int,
+                 embedding_token_dim: int,
+                 max_num_seg: int):
+        """"""
+        super(MyMspMaskToken, self).__init__()
+
+        # data
+        self.batch_size = batch_size
+        self.rnd_token_table = torch.from_numpy(rnd_token_table).to(dtype=torch.float32)
+        self.num_cls = None
+
+        self.rnd_para_table = {}
+        for para_name, para_table in iter(rnd_para_table.items()):
+            self.rnd_para_table[para_name] = torch.from_numpy(para_table).to(dtype=torch.float32)
+
+        # layer
+        self.tokenizer = utility_function.Tokenizer(token_tuple)
+
+        self.token_substitution = TokenSubstitution(token_tuple[0],
+                                                    max_num_seg,
+                                                    embedding_token_dim,
+                                                    self.batch_size,
+                                                    self.rnd_token_table)
+
+        # # MASK LM
+        # self.mask_lm = MaskLM(token_tuple[0], embedding_token_dim)
+        # self.mask_lm_loss = nn.MSELoss()
+        #
+        # # next_para_pred
+        # self.next_para_pred = NextParameterPred(embedding_token_dim)
+        # self.next_para_pred_loss = nn.CrossEntropyLoss()
 
     def nsp_replace(self,
                     in_data: dict,
-                    rnd_para_table,
-                    max_rpl=2,
-                    nsp_rate=0.5):
+                    max_rpl=1,
+                    nsp_rate=0.5,
+                    visulize=True):
         """"""
         rpl_num = 0
         nsp_positions_and_labels_dict = {}
-        for para_index, para_name in enumerate(iter(in_data)):
-            temp_para_arr = in_data[para_name]
-            # temp_para_shape = temp_para_arr.shape
-            if para_name != 'label' and para_index != 0:
-                temp_nsp_label = None  # 0 - not next para, 1 - next para
-                if random.random() < 0.5 and rpl_num < max_rpl:
-                    rpl_num += 1
+        key_list = list(in_data.keys())
+        key_back = copy.deepcopy(key_list)
 
-                    temp_org_para_data = temp_para_arr
+        key_list.remove('ch1v')
+        key_list.remove('label')
+        rnd_key = random.choice(key_list)
 
-                    # get para key
-                    temp_para_name_list = list(in_data.keys())
-                    temp_para_name_list.remove(para_name)
-                    temp_para_name_list.remove('label')
+        if random.random() < nsp_rate:
 
-                    # get para for replace
-                    rnd_para_name = random.choice(temp_para_name_list)
-                    rnd_para_data = random.choice(self.rnd_para_table[rnd_para_name]).repeat(self.batch_size, 1)
-                    in_data[para_name] = rnd_para_data
+            # get para key
+            key_back.remove(rnd_key)
+            key_back.remove('ch1v')
+            key_back.remove('label')
 
-                    temp_nsp_label = [para_index, rnd_para_name, 0]  # 0 - not next para, 1 - next para
+            # get para for replace
+            rnd_para_name = random.choice(key_back)
+            rnd_para_data = random.choice(self.rnd_para_table[rnd_para_name]).repeat(self.batch_size, 1)
+            in_data[rnd_key] = rnd_para_data
 
-                nsp_positions_and_labels_dict[para_name] = temp_nsp_label
+            # 0 - not next para, 1 - next para
+            # [true para pos, sub para name, 0/1]
+            temp_nsp_label = [rnd_key, rnd_para_name, 0]
+        else:
+            rnd_para_name = rnd_key
+            temp_nsp_label = [rnd_key, rnd_para_name, 1]
 
+        nsp_positions_and_labels_dict[rnd_key] = temp_nsp_label
+        rpl_num += 1
         #
         self.num_cls = rpl_num
 
         return in_data, nsp_positions_and_labels_dict
 
-
-    def forward(self, in_data) -> torch.Tensor:
+    def forward(self, in_data):
         """
         :param in_data: dict, {'ch1v': torch.Tensor, # Batch * 161
                                'ch2v': torch.Tensor, # Batch * 177
@@ -442,42 +467,66 @@ class MyMulitBERT(nn.Module):
 
         # replace token
         out_data, mlm_positions_and_labels_dict, mask_df_list = self.token_substitution.mlm_repalce(temp_token_dict,
-                                                                                                 visulize=True)
+                                                                                                    visulize=True)
 
         # insect special token embedding
-        out_data, segments, mlm_positions_and_labels_dict = self.token_substitution(out_data,
-                                                                                    mlm_positions_and_labels_dict,
-                                                                                    self.num_cls,
-                                                                                    mask_df_list,
-                                                                                    visulize=True)
+        out_data, segments, trans_positions_and_labels_dict, sub_df = self.token_substitution(out_data,
+                                                                                      mlm_positions_and_labels_dict,
+                                                                                              self.num_cls,
+                                                                                              mask_df_list,
+                                                                                              visulize=True)
 
-        # token embedding
-        token_embedding_list = []
-        for token_idx in range(out_data.shape[1]):
-            temp_token_embedding = self.token_embedding(out_data[:, token_idx, :].unsqueeze(1))
-            token_embedding_list.append(temp_token_embedding)
-        out_data = torch.cat(token_embedding_list, dim=1)
+        return out_data, temp_label_arr, segments, nsp_positions_and_labels_dict, trans_positions_and_labels_dict
 
-        # get segments embedding
-        segments_embedding = self.segment_embedding(torch.tensor(segments,
-                                                    dtype=torch.long)).unsqueeze(0)
 
-        seg_pos_embedding = segments_embedding + self.position_embedding[:, 0:len(segments), :]
+class MyMulitBERT(nn.Module):
+    """"""
+    def __init__(self,
+                 token_tuple,
+                 rnd_token_table,
+                 rnd_para_table,
+                 batch_size,
+                 embedding_token_dim,
+                 max_num_seg,
+                 max_token,
+                 encoder_para):
+        """"""
+        super(MyMulitBERT, self).__init__()
+        self.model_name = self.__class__.__name__
+        self.batch_size = batch_size
 
-        seg_pos_embedding = seg_pos_embedding.repeat(self.batch_size, 1, 1)
+        self.parasub_tokenize_tokensub = MyMspMaskToken(token_tuple=token_tuple,
+                                                        rnd_token_table=rnd_token_table,
+                                                        rnd_para_table=rnd_para_table,
+                                                        batch_size=batch_size,
+                                                        embedding_token_dim=embedding_token_dim,
+                                                        max_num_seg=max_num_seg)
 
-        # add position embedding and segment embedding to the data
-        out_data = out_data + seg_pos_embedding
+        self.encoder = MyBertEncoder(max_num_seg=max_num_seg,
+                                     max_num_token=max_token,
+                                     embedding_token_dim=embedding_token_dim,
+                                     encoder_para=encoder_para)
 
-        # encoder input B * L * EB
-        out_data = self.encoder_blk(out_data)
+        # # MASK LM
+        self.mask_lm = MaskLM(token_tuple[0], embedding_token_dim)
+        #
+        # next_para_pred
+        self.next_para_pred = NextParameterPred(embedding_token_dim)
 
-        # masl lm
-        mlm_pred = self.mask_lm()
+    def forward(self, in_data):
+        """"""
+        out_data, _, segments, nsp_pred_loc, mlm_pred_loc = self.parasub_tokenize_tokensub(in_data)
 
+        encoder_out = self.encoder(out_data, segments, self.batch_size)
+
+        # mask lm
+        mlm_pred = self.mask_lm(encoder_out, mlm_pred_loc)
+        #
         # next para prediction
-        temp_cls_token = out_data[:, 0, :]
+        temp_cls_token = encoder_out[:, 0, :].unsqueeze(1)
         next_para_pred = self.next_para_pred(temp_cls_token)
+
+        return encoder_out, mlm_pred, next_para_pred
 
 
 if __name__ == '__main__':
@@ -534,6 +583,7 @@ if __name__ == '__main__':
                           batch_size=bsz,
                           embedding_token_dim=16,
                           max_num_seg=5,
+                          max_token=10000,
                           encoder_para=(3, 4, 256))
 
     for i, data in enumerate(m_data_loader):

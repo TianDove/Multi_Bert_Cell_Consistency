@@ -398,5 +398,29 @@ def intermedia_data_dict_inspcetion(data_dict: dict) -> np.array:
     return vis_arr
 
 
+def save_model_checkpoint(model, optimizer, epoch, loss, path):
+    """
+    save model checkpoint
+    """
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': loss
+    }, path)
+
+
+def load_model_checkpoint(path, model, optimizer):
+    """
+    load model checkpoint
+    """
+    checkpoint_dict = torch.load(path)
+    model.load_state_dict(checkpoint_dict['model_state_dict'])
+    optimizer.load_state_dict(checkpoint_dict['optimizer_state_dict'])
+    epoch = checkpoint_dict['epoch']
+    loss = checkpoint_dict['loss']
+    return model, optimizer, epoch, loss
+
+
 if __name__ == '__main__':
     pass
