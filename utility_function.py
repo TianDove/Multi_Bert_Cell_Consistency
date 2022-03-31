@@ -313,20 +313,20 @@ class Tokenizer():
         self.step = token_tuple[2]
         self.detoken_len = None
 
-    def tokenize(self, in_data: np.array) -> np.array:
+    def tokenize(self, in_data: torch.tensor) -> torch.tensor:
         """"""
         in_temp = in_data
         d_size = in_temp.shape
-        assert d_size[0] > self.t_len
-        r_mod = d_size[0] % self.t_len
+        assert d_size[1] > self.t_len
+        r_mod = d_size[1] % self.t_len
 
         if not self.overlap:
             if r_mod != 0:
                 pad_num = 0
                 num_of_padding = self.t_len - r_mod
-                pad_arr = np.ones(num_of_padding) * pad_num
-                in_temp = np.concatenate((in_temp, pad_arr))
-            out_data = np.reshape(in_temp, (-1, self.t_len))
+                pad_arr = torch.ones(num_of_padding) * pad_num
+                in_temp = torch.cat((in_temp, pad_arr.reshape(1, -1)), dim=1)
+            out_data = in_temp.reshape(-1, self.t_len)
             num_of_token = out_data.shape[0]
         else:
             num_of_step = math.ceil((d_size[0] - (self.t_len - self.step)) / self.step)
@@ -334,10 +334,10 @@ class Tokenizer():
             if (self.detoken_len % d_size[0]) != 0:
                 pad_num = 0
                 num_of_padding = self.detoken_len - d_size[0]
-                pad_arr = np.ones(num_of_padding) * pad_num
-                in_temp = np.concatenate((in_temp, pad_arr))
+                pad_arr = torch.ones(num_of_padding) * pad_num
+                in_temp = torch.cat((in_temp, pad_arr))
             # overlap tokenize
-            out_data = np.zeros((num_of_step, self.t_len))
+            out_data = torch.zeros((num_of_step, self.t_len))
             for stp in range(num_of_step):
                 index = stp * self.step
                 temp_token = in_temp[index:index + self.t_len]
@@ -420,6 +420,23 @@ def load_model_checkpoint(path, model, optimizer):
     epoch = checkpoint_dict['epoch']
     loss = checkpoint_dict['loss']
     return model, optimizer, epoch, loss
+
+
+def tensor_dict_to_device(in_dict,
+                          device=torch.device('cpu')):
+    """"""
+    out_dict = {}
+    for key, value in iter(in_dict.items()):
+        out_dict[key] = value.to(device)
+
+    return out_dict
+
+def init_model(model):
+    """"""
+    for p in model.parameters():
+        if p.dim() > 1:
+            torch.nn.init.xavier_uniform_(p)
+    return model
 
 
 if __name__ == '__main__':

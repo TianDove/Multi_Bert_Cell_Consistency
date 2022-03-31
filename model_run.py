@@ -15,24 +15,33 @@ import sklearn.metrics as skl_mtr
 
 import file_operation
 import functional
+import utility_function
+import model_define
 
 
 class ClsRun():
     """"""
     def __init__(self,
+                 train_mode: str,
                  data_time: str,
                  data_set_dic: dict,
+                 rnd_para_dict,
+                 tokenizer,
                  n_epochs: int,
                  model: nn.Module,
-                 loss_fn: nn.Module,
+                 loss_fn,
                  writer: SummaryWriter,
                  optimizer: torch.optim,
                  scheduler: torch.optim.lr_scheduler = None,
                  device: torch.device = torch.device('cpu'),
                  hyper_para_dict: dict = None,
-                 trial: optuna.trial.Trial = None):
+                 trial: optuna.trial.Trial = None,
+                 test_bsz=None):
         """"""
         # save input
+        self.tokenizer = tokenizer
+        self.rnd_para_dict = rnd_para_dict
+        self.train_mode = train_mode
         self.data_time = data_time
         self.data_set_dic = data_set_dic
         self.n_epochs = n_epochs
@@ -44,14 +53,19 @@ class ClsRun():
         self.device = device
         self.hyper_para_dict = hyper_para_dict
         self.trial = trial
-        self.test_bsz = None
+        self.test_bsz = test_bsz
 
         # get data set
-        self.train_data_set = self.data_set_dic['train_data_set']
+        if self.train_mode == 'pretrain':
+            self.train_data_set = self.data_set_dic['train']
+        else:
+            self.train_data_set = self.data_set_dic['train']
         self.n_train_batch = len(self.train_data_set)
-        self.val_data_set = self.data_set_dic['val_data_set']
+
+        self.val_data_set = self.data_set_dic['val']
         self.n_val_batch = len(self.val_data_set)
-        self.test_data_set = self.data_set_dic['test_data_set']
+
+        self.test_data_set = self.data_set_dic['test']
         self.n_test_batch = len(self.test_data_set)
 
         # save dir
@@ -109,22 +123,25 @@ class ClsRun():
             self.epoch_train_loss, self.epoch_train_accu = self.train_loop()
             self.epoch_train_end_time = time.perf_counter()
 
-            # validation
-            self.epoch_val_loss = 0.0
-            self.epoch_val_start_time = time.perf_counter()
-            self.epoch_val_loss, self.epoch_val_accu, self.val_dict = self.test_loop('val',
-                                                                                     self.val_data_set,
-                                                                                     self.n_val_batch)
-            self.epoch_val_accu_list.append(self.epoch_val_accu)
-            self.epoch_end_time = time.perf_counter()
+            if self.train_mode != 'pretrain':
+                # validation
+                self.epoch_val_loss = 0.0
+                self.epoch_val_start_time = time.perf_counter()
+                self.epoch_val_loss, self.epoch_val_accu, self.val_dict = self.test_loop('val',
+                                                                                         self.val_data_set,
+                                                                                         self.n_val_batch)
+                self.epoch_val_accu_list.append(self.epoch_val_accu)
+                self.run_log(self.save_dir, 'val', is_print=True)  # log val
 
+            self.epoch_end_time = time.perf_counter()
             if self.scheduler is not None:
                 self.scheduler.step()
 
-            self.run_log(self.save_dir, 'val', is_print=True)  # log val
-
-            # write metric to tensorboard
-            self.write_eval(self.val_dict)
+            if self.train_mode == 'pretrain':
+                self.write_eval(self.epoch_train_loss)
+            else:
+                # write metric to tensorboard
+                self.write_eval(self.val_dict)
 
             # save model
             self.save_model(self.save_dir)
@@ -134,7 +151,6 @@ class ClsRun():
                 self.trial.report(self.epoch_val_accu, epoch)
                 if self.trial.should_prune():
                     raise optuna.exceptions.TrialPruned()
-
         self.write_hypara()
 
     def test_run(self, epoch, test_bsz):
@@ -165,44 +181,101 @@ class ClsRun():
 
     def train_loop(self):
         """"""
-        self.curr_stage = 'train'
-        self.model.train()
-        sum_loss = 0.0
-        out_list = []
-        label_list = []
-        for batch_index, train_data in enumerate(self.train_data_set):
-            self.curr_batch = batch_index
-            self.batch_train_start_time = time.perf_counter()
-            data, label = train_data
-            data = data.to(device=self.device)
-            label = label.to(device=self.device)
-            if not self.writer_graph_flag:
-                self.writer.add_graph(self.model, data)
-                self.writer_graph_flag = True
-            out = self.model(data)
-            scalar_loss = self.loss_fn(out, label)
-            self.optimizer.zero_grad()
-            scalar_loss.backward()
-            self.optimizer.step()
-            # record loss
-            sum_loss += scalar_loss.item()
-            out_list.append(torch.argmax(out, dim=1))
-            label_list.append(label)
-            # write batch loss
-            # self.writer.add_scalars(f'{self.model_name}_Batch_Scalar',
-            #                        {'train_batch_loss': scalar_loss.item()},
-            #                        self.total_steps)
-            self.total_steps += 1
-            self.batch_train_loss = scalar_loss.item()
-            self.batch_train_end_time = time.perf_counter()
-            self.run_log(self.save_dir, self.curr_stage, is_print=True)  # log train
-        # calculate train avg accu
-        accu = 0.0
-        total_out = torch.cat(out_list).to(device=torch.device('cpu')).numpy()
-        total_label = torch.cat(label_list).to(device=torch.device('cpu')).numpy()
-        accu = skl_mtr.accuracy_score(total_label, total_out)
+        if self.train_mode == 'pretrain':
+            self.curr_stage = 'train'
+            self.model.train()
+            loss_key_list = list(self.loss_fn.keys())
+            loss_list = {x: [] for x in loss_key_list}
+            out_list = {x: [] for x in loss_key_list}
+            label_list = {x: [] for x in loss_key_list}
+            for batch_index, train_data in enumerate(self.train_data_set):
+                self.curr_batch = batch_index
+                self.batch_train_start_time = time.perf_counter()
+                m_out_data, nsp_lab = model_define.nsp_replace(train_data,
+                                                               self.train_data_set.batch_size,
+                                                               self.rnd_para_dict)
+                temp_token_dict, temp_label_arr = model_define.mytokenize(m_out_data, self.tokenizer)
 
-        return sum_loss / self.n_train_batch, accu
+                temp_data_dict = utility_function.tensor_dict_to_device(temp_token_dict, self.device)
+
+                encoder_out, mlm_pred, mlm_lab, nsp_pred = self.model(temp_data_dict)
+
+                if mlm_pred is None:
+                    mlm_loss = torch.tensor([0.0]).to(torch.float32).to(device=self.device)
+                else:
+                    # mlm loss
+                    mlm_lab_val = [x[1].unsqueeze(1) for x in mlm_lab]
+                    mlm_lab_val_tensor = torch.cat(mlm_lab_val, dim=1)
+                    mlm_loss = self.loss_fn['mlm_loss'](mlm_pred.cpu().to(torch.float32),
+                                                        mlm_lab_val_tensor.cpu().to(torch.float32))
+
+                loss_list['mlm_loss'].append(mlm_loss.item())
+
+                # nsp loss
+                nsp_lab_val = list(nsp_lab.values())[0][2]
+                # 0 -[1, 0]
+                # 1 -[0, 1]
+                if nsp_lab_val == 0:
+                    nsp_lab_val_tensor = torch.tensor([1, 0]).to(device=self.device)
+                else:
+                    nsp_lab_val_tensor = torch.tensor([0, 1]).to(device=self.device)
+                nsp_lab_val_tensor_batch = nsp_lab_val_tensor.repeat(nsp_pred.size(0), 1)
+                reduce_nsp_pred = nsp_pred.squeeze(1)
+                nsp_loss = self.loss_fn['nsp_loss'](reduce_nsp_pred.to(torch.float32),
+                                                    nsp_lab_val_tensor_batch.to(torch.float32))
+
+                loss_list['nsp_loss'].append(nsp_loss.item())
+
+                total_loss = mlm_loss + nsp_loss
+                self.optimizer.zero_grad()
+                total_loss.backward()
+                self.optimizer.step()
+
+                self.total_steps += 1
+                self.batch_train_loss = total_loss.item()
+                self.batch_train_end_time = time.perf_counter()
+                self.run_log(self.save_dir, self.curr_stage, is_print=True)
+
+            return loss_list, []
+        else:
+            self.curr_stage = 'train'
+            self.model.train()
+            sum_loss = 0.0
+            out_list = []
+            label_list = []
+            for batch_index, train_data in enumerate(self.train_data_set):
+                self.curr_batch = batch_index
+                self.batch_train_start_time = time.perf_counter()
+                data, label = train_data
+                data = data.to(device=self.device)
+                label = label.to(device=self.device)
+                if not self.writer_graph_flag:
+                    self.writer.add_graph(self.model, data)
+                    self.writer_graph_flag = True
+                out = self.model(data)
+                scalar_loss = self.loss_fn(out, label)
+                self.optimizer.zero_grad()
+                scalar_loss.backward()
+                self.optimizer.step()
+                # record loss
+                sum_loss += scalar_loss.item()
+                out_list.append(torch.argmax(out, dim=1))
+                label_list.append(label)
+                # write batch loss
+                # self.writer.add_scalars(f'{self.model_name}_Batch_Scalar',
+                #                        {'train_batch_loss': scalar_loss.item()},
+                #                        self.total_steps)
+                self.total_steps += 1
+                self.batch_train_loss = scalar_loss.item()
+                self.batch_train_end_time = time.perf_counter()
+                self.run_log(self.save_dir, self.curr_stage, is_print=True)  # log train
+            # calculate train avg accu
+            accu = 0.0
+            total_out = torch.cat(out_list).to(device=torch.device('cpu')).numpy()
+            total_label = torch.cat(label_list).to(device=torch.device('cpu')).numpy()
+            accu = skl_mtr.accuracy_score(total_label, total_out)
+
+            return sum_loss / self.n_train_batch, accu
 
     def test_loop(self, stage, data_set, n_batch):
         """"""
@@ -300,32 +373,37 @@ class ClsRun():
 
     def write_eval(self, raw_out_dict: dict):
         """"""
-
-        raw_out_arr = torch.cat(raw_out_dict['raw_out']).to(device=torch.device('cpu'))
-        label_arr = torch.cat(raw_out_dict['label']).to(device=torch.device('cpu')).numpy()
-        score_arr = torch.argmax(raw_out_arr, dim=1)
-
-        auc = skl_mtr.roc_auc_score(label_arr, score_arr)
-        # write to tensorboard
-        if self.trial is not None:
+        if self.train_mode == 'pretrain':
             scalar_dic = {
-                f'{self.trial.number}_train_loss': self.epoch_train_loss,
-                f'{self.trial.number}_val_loss': self.epoch_val_loss,
-                f'{self.trial.number}_train_acc': self.epoch_train_accu,
-                f'{self.trial.number}_val_acc': self.epoch_val_accu,
-                f'{self.trial.number}_AUC': auc
+                'epoch_avg_msp_loss': np.sum(np.array(raw_out_dict['nsp_loss'])) / len(raw_out_dict['nsp_loss']),
+                'epoch_avg_mlm_loss': np.sum(np.array(raw_out_dict['mlm_loss'])) / len(raw_out_dict['mlm_loss']),
             }
         else:
-            scalar_dic = {
-                'train_loss': self.epoch_train_loss,
-                'val_loss': self.epoch_val_loss,
-                'train_acc': self.epoch_train_accu,
-                'val_acc': self.epoch_val_accu,
-                'AUC': auc
-            }
+            raw_out_arr = torch.cat(raw_out_dict['raw_out']).to(device=torch.device('cpu'))
+            label_arr = torch.cat(raw_out_dict['label']).to(device=torch.device('cpu')).numpy()
+            score_arr = torch.argmax(raw_out_arr, dim=1)
+
+            auc = skl_mtr.roc_auc_score(label_arr, score_arr)
+            # write to tensorboard
+            if self.trial is not None:
+                scalar_dic = {
+                    f'{self.trial.number}_train_loss': self.epoch_train_loss,
+                    f'{self.trial.number}_val_loss': self.epoch_val_loss,
+                    f'{self.trial.number}_train_acc': self.epoch_train_accu,
+                    f'{self.trial.number}_val_acc': self.epoch_val_accu,
+                    f'{self.trial.number}_AUC': auc
+                }
+            else:
+                scalar_dic = {
+                    'train_loss': self.epoch_train_loss,
+                    'val_loss': self.epoch_val_loss,
+                    'train_acc': self.epoch_train_accu,
+                    'val_acc': self.epoch_val_accu,
+                    'AUC': auc
+                }
 
         self.writer.add_scalars(
-            f'{self.model_name}_Scalar',
+            f'{self.model_name}_{self.train_mode}_Scalar',
             scalar_dic,
             self.curr_epoch
         )
