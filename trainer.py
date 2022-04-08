@@ -292,10 +292,10 @@ class Trainer(object):
             temp_pre_list = self.preprocess.pro(train_data,
                                                 self.device)
 
-            self.curr_batch_loss = self.init_model(*temp_pre_list)
+            batch_loss = self.init_model(*temp_pre_list)
 
             self.optm.zero_grad()
-            self.curr_batch_loss.backward()
+            batch_loss.backward()
             self.optm.step()
 
             # batch_train timer end
@@ -303,7 +303,8 @@ class Trainer(object):
 
             # log batch loss
             # batch_loss_list.append(model_loss.to('cpu').item())
-            r_loss = self.curr_batch_loss.to('cpu').item()
+            r_loss = batch_loss.cpu().item()
+            self.curr_batch_loss = r_loss
             self.batch_train_loss_accumulator.add(r_loss)
 
             # accumulate nsp mlm loss

@@ -31,7 +31,7 @@ if __name__ == '__main__':
     m_data_path = '.\\pik\\test_22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
     ###################################################################################################################
     # set the data set parameters
-    m_batch_size = 3
+    m_batch_size = 32
     m_workers = 1
     ###################################################################################################################
     # set preprocessing
@@ -84,7 +84,7 @@ if __name__ == '__main__':
     }
     m_scheduler_param = {
         'scheduler name': 'StepLR',
-        'step_size': 10,
+        'step_size': 16,
         'gamma': 0.95,
         'last_epoch': -1,
         'verbose': False
@@ -105,6 +105,6 @@ if __name__ == '__main__':
 
     # train_mode:('pretrain', 'train')
     m_trainer.run(train_mode='pretrain',
-                  num_epoch=128,
+                  num_epoch=3,
                   preprocessor=m_preprocessor)
     sys.exit(0)

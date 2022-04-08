@@ -408,7 +408,6 @@ class TokenSubstitution(nn.Module):
 
         self.sp_token_embedding = nn.Embedding(num_embeddings=self.num_sp_token,
                                                embedding_dim=in_len,
-                                               max_norm=1.0,
                                                padding_idx=0)
         # special token define
         # 'PAD': 0,
@@ -614,13 +613,13 @@ class MyBertEncoder(nn.Module):
         """"""
         super(MyBertEncoder, self).__init__()
         self.device = device
+        self.scal = math.sqrt(embedding_token_dim)
 
         self.token_embedding = CovTokenEmbedding(1)
         self.segment_embedding = nn.Embedding(num_embeddings=max_num_seg,
-                                              embedding_dim=embedding_token_dim,
-                                              max_norm=1.0)
+                                              embedding_dim=embedding_token_dim)
 
-        self.position_embedding = nn.Parameter(torch.rand(1, max_num_token, embedding_token_dim))  # (0, 1)
+        self.position_embedding = nn.Parameter(torch.randn(1, max_num_token, embedding_token_dim))  # (0, 1)
 
         self.encoder_blk = nn.Sequential()
         for i in range(encoder_para[0]):
@@ -651,7 +650,7 @@ class MyBertEncoder(nn.Module):
         seg_pos_embedding = seg_pos_embedding.repeat(batch_size, 1, 1)
 
         # add position embedding and segment embedding to the data
-        out_data = out_data + seg_pos_embedding
+        out_data = out_data + (self.scal * seg_pos_embedding)
 
         # encoder input B * L * EB
         ecd_out = self.encoder_blk(out_data)
