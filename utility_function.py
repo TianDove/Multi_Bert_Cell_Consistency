@@ -431,12 +431,37 @@ def tensor_dict_to_device(in_dict,
 
     return out_dict
 
+
 def init_model(model):
     """"""
     for p in model.parameters():
         if p.dim() > 1:
             torch.nn.init.xavier_uniform_(p)
     return model
+
+
+def para_simple_concat(in_data: dict):
+    """"""
+    for key, value in iter(in_data.items()):
+        if key != 'pretrain':
+            temp_cell_dict = value
+            temp_cat_list = []
+            for para_name, para_val in iter(temp_cell_dict.items()):
+                pass
+
+
+def write_txt(file_path, data):
+    if not os.path.exists(file_path):
+        with open(file_path, 'w', encoding='utf-8') as file:
+            print(data, file=file)
+    else:
+        with open(file_path, 'a', encoding='utf-8') as file:
+            print(data, file=file)
+
+
+def merge_dict(dict1, dict2):
+    """"""
+    return (dict2.update(dict1))
 
 
 if __name__ == '__main__':

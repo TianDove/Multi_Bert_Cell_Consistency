@@ -9,9 +9,243 @@ from tqdm import tqdm
 import pandas as pd
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 #
 import utility_function
 
+
+class Conv_Bn_Relu(nn.Module):
+    def __init__(self, in_ch, out_ch, k_size, dropout):
+        """
+        in:(N, in_ch, L, E)
+        out:(N, out_ch, L, E)
+        """
+        super(Conv_Bn_Relu, self).__init__()
+        self.n_pad = (k_size - 1) // 2
+        self.dropout = nn.Dropout(p=dropout)
+        self.conv1 = nn.Conv1d(in_ch, out_ch, k_size, padding=self.n_pad)
+        self.bn = nn.BatchNorm1d(out_ch)
+        self.acti = nn.ReLU()
+
+    def forward(self, x):
+        res = self.dropout(x)
+        res = self.conv1(res)
+        res = self.bn(res)
+        res = self.acti(res)
+        return res
+
+
+class Dense_Sigmoid(nn.Module):
+    """"""
+    def __init__(self, in_dim, out_dim, dropout):
+        """"""
+        super(Dense_Sigmoid, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        self.linear = nn.Linear(in_dim, out_dim)
+        self.act = nn.Sigmoid()
+
+    def forward(self, x):
+        """"""
+        res = self.dropout(x)
+        res = self.linear(res)
+        res = self.act(res)
+        return res
+
+
+class ResidualBlock(nn.Module):
+    """
+    (N, C, L)
+    """
+    def __init__(self, in_ch, out_ch, k_size, dropout):
+        """"""
+        super(ResidualBlock, self).__init__()
+        self.model_name = self.__class__.__name__
+        self.conv1 = Conv_Bn_Relu(in_ch, out_ch, k_size, dropout=dropout)
+        self.conv2 = Conv_Bn_Relu(out_ch, out_ch, k_size, dropout=dropout)
+        self.conv3 = Conv_Bn_Relu(out_ch, out_ch, k_size, dropout=dropout)
+        self.x_conv = Conv_Bn_Relu(in_ch, out_ch, 1, dropout=dropout)
+
+    def forward(self, x):
+        res = self.conv1(x)
+        res = self.conv2(res)
+        res = self.conv3(res)
+        res = res + self.x_conv(x)
+        return res
+
+
+class BaseLine_MLP(nn.Module):
+    """"""
+    def __init__(self,
+                 in_dim,
+                 num_cls,
+                 loss_func=None,
+                 dropout=0.1):
+        """"""
+        super(BaseLine_MLP, self).__init__()
+        self.model_name = self.__class__.__name__
+        self.model_batch_out = None
+        self.model_batch_loss = None
+
+        # dense
+        self.dense1 = Dense_Sigmoid(in_dim, 512, dropout)
+        self.dense2 = Dense_Sigmoid(512, 256, dropout)
+        self.dense3 = Dense_Sigmoid(256, 128, dropout)
+
+        # last layer
+        self.dropout = nn.Dropout(p=dropout)
+        self.linear = nn.Linear(128, num_cls)
+        self.softmax = nn.Softmax(dim=-1)
+        self.loss_func = loss_func
+
+    def forward(self, x, y=None):
+        """"""
+        res = self.dense1(x)
+        res = self.dense2(res)
+        res = self.dense3(res)
+        res = self.dropout(res)
+        res = self.linear(res)
+        res = self.softmax(res)
+
+        self.model_batch_out = res
+
+        if (y is not None) and (self.loss_func is not None):
+            ls = self.loss_func(res, y)
+            self.model_batch_loss = ls
+            return ls
+        else:
+            return res
+
+    def get_out(self):
+        """"""
+        return self.model_batch_out
+
+    def get_loss(self):
+        """"""
+        return self.model_batch_loss
+
+    @classmethod
+    def init_model(cls, init_dic: dict):
+        """"""
+        model = cls(**init_dic)
+        return model
+
+
+class BaseLine_FCN(nn.Module):
+    """"""
+    def __init__(self,
+                 in_dim,
+                 num_cls,
+                 loss_func=None,
+                 dropout=0.1):
+        """"""
+        super(BaseLine_FCN, self).__init__()
+        self.model_name = self.__class__.__name__
+        self.model_batch_out = None
+        self.model_batch_loss = None
+
+        # conv layer
+        self.conv1 = Conv_Bn_Relu(1, 128, 7, dropout=dropout)
+        self.conv2 = Conv_Bn_Relu(128, 256, 5, dropout=dropout)
+        self.conv3 = Conv_Bn_Relu(256, 128, 3, dropout=dropout)
+
+        # last layer
+        self.linear = nn.Linear(128, num_cls)
+        self.softmax = nn.Softmax(dim=1)
+        self.loss_func = loss_func
+
+    def forward(self, x, y=None):
+        """"""
+        x = x.unsqueeze(dim=1)
+        res = self.conv1(x)
+        res = self.conv2(res)
+        res = self.conv3(res)
+        # global pooling
+        res = F.adaptive_avg_pool1d(res, 1)
+        res = res.squeeze()
+        # out layer
+        res = self.linear(res)
+        res = self.softmax(res)
+
+        self.model_batch_out = res
+
+        if (y is not None) and (self.loss_func is not None):
+            ls = self.loss_func(res, y)
+            self.model_batch_loss = ls
+            return ls
+        else:
+            return res
+
+    def get_out(self):
+        """"""
+        return self.model_batch_out
+
+    def get_loss(self):
+        """"""
+        return self.model_batch_loss
+
+    @classmethod
+    def init_model(cls, init_dic: dict):
+        """"""
+        model = cls(**init_dic)
+        return model
+
+
+class BaseLine_ResNet(nn.Module):
+    """"""
+    def __init__(self,
+                 in_dim,
+                 num_cls,
+                 loss_func=None,
+                 dropout=0.1):
+        """"""
+        super(BaseLine_ResNet, self).__init__()
+        self.model_name = self.__class__.__name__
+        self.model_batch_out = None
+        self.model_batch_loss = None
+
+        self.residual1 = ResidualBlock(1, 64, 7, dropout=dropout)
+        self.residual2 = ResidualBlock(64, 128, 5, dropout=dropout)
+        self.residual3 = ResidualBlock(128, 128, 3, dropout=dropout)
+        # out layer
+        self.linear = nn.Linear(128, num_cls)
+        self.softmax = nn.Softmax(dim=1)
+        self.loss_func = loss_func
+
+    def forward(self, x, y=None):
+        """"""
+        x = x.unsqueeze(dim=1)
+        res = self.residual1(x)
+        res = self.residual2(res)
+        res = self.residual3(res)
+        # global pooling
+        res = F.adaptive_avg_pool1d(res, 1)
+        res = res.squeeze()
+        # out layer
+        res = self.linear(res)
+        res = self.softmax(res)
+
+        self.model_batch_out = res
+
+        if (y is not None) and (self.loss_func is not None):
+            ls = self.loss_func(res, y)
+            self.model_batch_loss = ls
+            return ls
+        else:
+            return res
+
+    def get_out(self):
+        """"""
+        return self.model_batch_out
+
+    def get_loss(self):
+        """"""
+        return self.model_batch_loss
+
+    @classmethod
+    def init_model(cls, init_dic: dict):
+        """"""
+        model = cls(**init_dic)
+        return model
 
 def mytokenize(in_data,
                tokenizer):
@@ -66,7 +300,7 @@ def nsp_replace(in_data: dict,
 
         # get para for replace
         rnd_para_name = random.choice(key_back)
-        rnd_para_data = random.choice(rnd_para_table[rnd_para_name]).repeat(bsz, 1)
+        rnd_para_data = random.choice(rnd_para_table[rnd_para_name]).reshape(1, -1).repeat(bsz, 1)
         in_data[rnd_key] = rnd_para_data
 
         # 0 - not next para, 1 - next para
@@ -164,8 +398,8 @@ class TokenSubstitution(nn.Module):
                  device):
         """"""
         super(TokenSubstitution, self).__init__()
-        self.device = device
         self.batch_size = batch_size
+        self.device = device
         self.max_seg = max_seg
         self.in_len = in_len
         self.token_dim = token_dim
@@ -375,8 +609,8 @@ class MyBertEncoder(nn.Module):
                  max_num_seg: int,
                  max_num_token: int,
                  embedding_token_dim: int,
-                 encoder_para: tuple,  # (layers, nhead, hidden_size)
-                 device):
+                 encoder_para: tuple,
+                 device):  # (layers, nhead, hidden_size)
         """"""
         super(MyBertEncoder, self).__init__()
         self.device = device
@@ -425,7 +659,7 @@ class MyBertEncoder(nn.Module):
         return ecd_out
 
 
-class MyMulitBERT(nn.Module):
+class MyMulitBERTPreTrain(nn.Module):
     """"""
     def __init__(self,
                  token_tuple,
@@ -435,18 +669,29 @@ class MyMulitBERT(nn.Module):
                  max_num_seg,
                  max_token,
                  encoder_para,
+                 loss_fun,
                  device):
         """"""
-        super(MyMulitBERT, self).__init__()
+        super(MyMulitBERTPreTrain, self).__init__()
         self.model_name = self.__class__.__name__
         self.batch_size = batch_size
         self.device = device
+
+        self.rnd_token_table = utility_function.read_pickle_file(rnd_token_table)
+        self.rnd_token_table = torch.from_numpy(self.rnd_token_table).to(dtype=torch.float32)
+        self.rnd_token_table = self.rnd_token_table.to(device)
+
+        self.model_batch_out = None
+        self.model_batch_loss = None
+
+        self.nsp_loss = None
+        self.mlm_loss = None
 
         self.token_substitution = TokenSubstitution(in_len=token_tuple[0],
                                                     max_seg=max_num_seg,
                                                     token_dim=embedding_token_dim,
                                                     batch_size=batch_size,
-                                                    rnd_token_table=rnd_token_table,
+                                                    rnd_token_table=self.rnd_token_table,
                                                     device=device)
 
         self.encoder = MyBertEncoder(max_num_seg=max_num_seg,
@@ -461,11 +706,16 @@ class MyMulitBERT(nn.Module):
         # next_para_pred
         self.next_para_pred = NextParameterPred(embedding_token_dim)
 
-    def forward(self, in_data):
+        self.mlm_loss_func = loss_fun['mlm_loss']
+        self.nsp_loss_func = loss_fun['nsp_loss']
+
+    def forward(self, in_data, _, nsp_label):
         """"""
         out_data, segment_index_device, mlm_pos_label_list = self.token_substitution(in_data)
 
         encoder_out = self.encoder(out_data, segment_index_device, self.batch_size)
+
+        self.model_batch_out = encoder_out
 
         # mask lm
         mlm_pred = None
@@ -476,75 +726,197 @@ class MyMulitBERT(nn.Module):
         temp_cls_token = encoder_out[:, 0, :].unsqueeze(1)
         nsp_pred = self.next_para_pred(temp_cls_token)
 
-        return encoder_out, mlm_pred, mlm_pos_label_list, nsp_pred
+        if mlm_pred is None:
+            mlm_ls = torch.tensor([0.0]).to(torch.float32).to(device=self.device)
+        else:
+            # mlm loss
+            mlm_lab_val = [x[1].unsqueeze(1) for x in mlm_pos_label_list]
+            mlm_lab_val_tensor = torch.cat(mlm_lab_val, dim=1)
+            mlm_ls = self.mlm_loss_func(mlm_pred, mlm_lab_val_tensor)
+
+        nsp_ls = self.nsp_loss_func(nsp_pred.squeeze(1), nsp_label)
+
+        self.nsp_loss = nsp_ls
+        self.mlm_loss = mlm_ls
+        self.model_batch_loss = mlm_ls + nsp_ls
+
+        return self.model_batch_loss
+
+    def get_out(self):
+        """"""
+        return self.model_batch_out
+
+    def get_loss(self):
+        """"""
+        return self.model_batch_loss
+
+    def get_nsp_loss(self):
+        """"""
+        return self.nsp_loss
+
+    def get_mlm_loss(self):
+        """"""
+        return self.mlm_loss
+
+    @classmethod
+    def init_model(cls, init_dic: dict):
+        """"""
+        model = cls(**init_dic)
+        return model
 
 
-if __name__ == '__main__':
+class MyDownStreamHead(nn.Module):
+    """"""
+    def __init__(self,
+                 encoder,
+                 num_class,
+                 num_token,
+                 embedding_token_dim):
+        """"""
+        super(MyDownStreamHead, self).__init__()
 
-    import os
-    import sys
-    import torch
-    import numpy as np
-    import utility_function
-    import dataset_and_dataloader
+        # for test
+        self.encoder = encoder
+        self.flat = nn.Flatten(start_dim=1, end_dim=-1)
+        self.linear = nn.Linear(in_features=num_token * embedding_token_dim, out_features=num_class)
+        self.activ = nn.GELU()
+        self.softmax = nn.Softmax(dim=-1)
 
-    RANDOM_SEED = 42
-    np.random.seed(RANDOM_SEED)
-    torch.manual_seed(RANDOM_SEED)
+    def forward(self, in_data, seg_index, batch_size):
+        """
 
-    os.environ['OMP_NUM_THREADS'] = '1'
+        :param in_data: (Batch_size, num_token, embedding dim)
+        :return:(Batch_size, num_Class)
+        """
+        in_data = self.encoder(in_data, seg_index, batch_size)
+        in_data = self.flat(in_data)
+        in_data = self.linear(in_data)
+        in_data = self.activ(in_data)
+        in_data = self.softmax(in_data)
+        return in_data
 
-    # set device
-    USE_GPU = True
-    if USE_GPU:
-        device = utility_function.try_gpu()
-    else:
-        device = torch.device('cpu')
 
-    # load dataset file
-    m_data_file_path = '.\\pik\\test_22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
-    m_data_dict = utility_function.read_pickle_file(m_data_file_path)
 
-    # load random token file
-    m_rnd_token_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndtoken_32.pickle'
-    m_rnd_token = utility_function.read_pickle_file(m_rnd_token_path)
-    m_rnd_token = torch.from_numpy(m_rnd_token).to(torch.float32)
 
-    # load random para file
-    m_rnd_para_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndpara.pickle'
-    m_rnd_para = utility_function.read_pickle_file(m_rnd_para_path)
-    m_rnd_para_table = {}
-    for para_name, para_table in iter(m_rnd_para.items()):
-        m_rnd_para_table[para_name] = torch.from_numpy(para_table).to(dtype=torch.float32)
+    # if __name__ == '__main__':
+#
+#     import os
+#     import sys
+#     import torch
+#     import numpy as np
+#     import utility_function
+#     import dataset_and_dataloader
+#
+#     RANDOM_SEED = 42
+#     np.random.seed(RANDOM_SEED)
+#     torch.manual_seed(RANDOM_SEED)
+#
+#     os.environ['OMP_NUM_THREADS'] = '1'
+#
+#     # set device
+#     USE_GPU = True
+#     if USE_GPU:
+#         device = utility_function.try_gpu()
+#     else:
+#         device = torch.device('cpu')
+#
+#     # load dataset file
+#     m_data_file_path = '.\\pik\\test_22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+#     m_data_dict = utility_function.read_pickle_file(m_data_file_path)
+#
+#     # load random token file
+#     m_rnd_token_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndtoken_32.pickle'
+#     m_rnd_token = utility_function.read_pickle_file(m_rnd_token_path)
+#     m_rnd_token = torch.from_numpy(m_rnd_token).to(torch.float32)
+#
+#     # load random para file
+#     m_rnd_para_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndpara.pickle'
+#     m_rnd_para = utility_function.read_pickle_file(m_rnd_para_path)
+#     m_rnd_para_table = {}
+#     for para_name, para_table in iter(m_rnd_para.items()):
+#         m_rnd_para_table[para_name] = torch.from_numpy(para_table).to(dtype=torch.float32)
+#
+#     bsz = 64
+#     m_data_loader = dataset_and_dataloader.CellDataLoader.creat_data_loader(m_data_dict, 'pretrain', bsz, True, 1, True)
+#
+#     # calculate token number
+#     example_input = m_data_dict['pretrain'][42627]
+#     _token_tuple = (32, False, 1)
+#     m_tokenizer = utility_function.Tokenizer(_token_tuple)
+#
+#     # calculate num of tokens
+#     num_token = 0
+#     first_data = m_data_dict['pretrain'][42627]
+#     for para_name, para_data in iter(first_data.items()):
+#         if para_name != 'label':
+#             temp_data = torch.from_numpy(para_data.reshape(1, -1)).to(dtype=torch.float32)
+#             temp_token_data, num_of_token = m_tokenizer.tokenize(temp_data)
+#             num_token += num_of_token
 
-    bsz = 64
-    m_data_loader = dataset_and_dataloader.CellDataLoader.creat_data_loader(m_data_dict, 'pretrain', bsz, True, 1, True)
+    # pretrian
 
-    # calculate token number
-    example_input = m_data_dict['pretrain'][42627]
-    _token_tuple = (32, False, 1)
-    m_tokenizer = utility_function.Tokenizer(_token_tuple)
+    # # model init
+    # m_model = MyMulitBERT(token_tuple=_token_tuple,
+    #                       rnd_token_table=m_rnd_token,
+    #                       batch_size=bsz,
+    #                       embedding_token_dim=16,
+    #                       max_num_seg=5,
+    #                       max_token=10000,
+    #                       encoder_para=(3, 4, 256),
+    #                       device=device)
+    # m_model.to(device)
 
-    # model init
-    m_model = MyMulitBERT(token_tuple=_token_tuple,
-                          rnd_token_table=m_rnd_token,
-                          batch_size=bsz,
-                          embedding_token_dim=16,
-                          max_num_seg=5,
-                          max_token=10000,
-                          encoder_para=(3, 4, 256),
-                          device=device)
-    m_model.to(device)
+    # for i, data in enumerate(m_data_loader):
+    #     m_out_data, m_nsp_labels = nsp_replace(data,
+    #                                            bsz,
+    #                                            m_rnd_para_table)
+    #
+    #     temp_token_dict, temp_label_arr = mytokenize(m_out_data, m_tokenizer)
+    #
+    #     temp_token_dict = utility_function.tensor_dict_to_device(temp_token_dict, device)
+    #
+    #     out = m_model(temp_token_dict)
 
-    for i, data in enumerate(m_data_loader):
-        m_out_data, m_nsp_labels = nsp_replace(data,
-                                               bsz,
-                                               m_rnd_para_table)
 
-        temp_token_dict, temp_label_arr = mytokenize(m_out_data, m_tokenizer)
 
-        temp_token_dict = utility_function.tensor_dict_to_device(temp_token_dict, device)
-
-        out = m_model(temp_token_dict)
-
-    sys.exit(0)
+    # finetune
+    # load_model_dict = torch.load('.\\log\\MyMulitBERT_20220331-133439\\MyMulitBERT_20220331-133439_0.pt')
+    # load_model = load_model_dict['model'].encoder
+    #
+    # down_stream_head = MyDownStreamHead(num_class=8,
+    #                                     num_token=num_token,
+    #                                     embedding_token_dim=16)
+    # down_stream_head = utility_function.init_model(down_stream_head).to(device)
+    # loss = torch.nn.CrossEntropyLoss()
+    #
+    # for i, data in enumerate(m_data_loader):
+    #     temp_token_dict, temp_label_arr = mytokenize(data, m_tokenizer)
+    #     token_tensor_list = []
+    #     seg_index_device = []
+    #     seg_init_index = 0
+    #     for para_name, para_table in iter(temp_token_dict.items()):
+    #         temp_num_token = para_table.shape[1]
+    #         temp_para_seg_tensor = torch.ones(temp_num_token) * seg_init_index
+    #         token_tensor_list.append(para_table)
+    #         seg_index_device.append(temp_para_seg_tensor)
+    #         seg_init_index += 1
+    #
+    #     seg_index_tensor = torch.cat(seg_index_device, dim=0).to(torch.long).to(device)
+    #     token_tensor = torch.cat(token_tensor_list, dim=1).to(torch.float32).to(device)
+    #
+    #     ec_out = load_model(token_tensor, seg_index_tensor, bsz)
+    #     out = down_stream_head(ec_out)
+    #
+    #     # label transform
+    #     out_sz = out.shape
+    #     temp_label_list = []
+    #     for label in iter(temp_label_arr):
+    #         temp_idx = label.item()
+    #         temp_zero_label = torch.zeros([1, out_sz[1]])
+    #         temp_zero_label[0, temp_idx] = 1.0
+    #         temp_label_list.append(temp_zero_label)
+    #     temp_label_tensor = torch.cat(temp_label_list, dim=0).to(torch.float32)
+    #
+    #     loss_val = loss(out.cpu(), temp_label_tensor)
+    #
+    # sys.exit(0)
