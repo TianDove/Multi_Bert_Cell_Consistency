@@ -360,12 +360,22 @@ class Trainer(object):
     def save_model(self, path: str) -> None:
         """"""
         assert os.path.exists(path)
+        save_model_path = os.path.join(path, 'models')
+        if not os.path.exists(save_model_path):
+            os.mkdir(save_model_path)
         file_name = f'{self.model_name}_{self.current_data_str}_{self.curr_epoch}'
         data_type = '.pt'
-        save_path = os.path.join(path, file_name + data_type)
+        save_path = os.path.join(save_model_path, file_name + data_type)
+        if self.curr_stage == 'pretrain':
+            save_model_dict = {
+                'tokensub': self.init_model.token_substitution.sp_token_embedding,
+                'encoder': self.init_model.encoder,
+            }
+        else:
+            save_model_dict = self.init_model
         torch.save({
             'epoch': self.curr_epoch,
-            'model': self.model,
+            'model': save_model_dict,
             'optimizer': self.optm,
             'scheduler': self.sche,
         }, save_path)

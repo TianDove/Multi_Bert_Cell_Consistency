@@ -767,6 +767,7 @@ class MyMulitBERTPreTrain(nn.Module):
 class MyDownStreamHead(nn.Module):
     """"""
     def __init__(self,
+                 tokensub,
                  encoder,
                  num_class,
                  num_token,
@@ -775,6 +776,7 @@ class MyDownStreamHead(nn.Module):
         super(MyDownStreamHead, self).__init__()
 
         # for test
+        self.tokensub = tokensub
         self.encoder = encoder
         self.flat = nn.Flatten(start_dim=1, end_dim=-1)
         self.linear = nn.Linear(in_features=num_token * embedding_token_dim, out_features=num_class)

@@ -503,16 +503,19 @@ class DataSetLabel(object):
 class CellDataLoader(Dataset):
     """"""
     def __init__(self,
-                 data_dict: dict,
-                 type_data_set: str) -> None:
+                 data_dict: dict):
         """"""
-        self.current_data_set = data_dict[type_data_set]
+        self.current_data_set = data_dict
         self.current_data_list = list(self.current_data_set.values())
         self.n_samples = None
 
-    def __getitem__(self, index: int) -> tuple:
+    def __getitem__(self, index: int):
         """"""
-        return self.current_data_list[index]
+        temp_data_label_tensor = {}
+        tmp_data_label = self.current_data_list[index]
+        for key, val in tmp_data_label.items():
+            temp_data_label_tensor[key] = torch.tensor(val, dtype=torch.float32)
+        return temp_data_label_tensor
 
     def __len__(self) -> int:
         """"""
@@ -521,19 +524,17 @@ class CellDataLoader(Dataset):
 
     @classmethod
     def creat_data_loader(cls,
-                          data_dict: dict,
-                          type_data_set: str,
+                          data_set_dict: dict,
                           batch_sz: int,
                           is_shuffle: bool,
-                          num_of_worker: int,
-                          pin_memory: bool) -> DataLoader:
+                          num_of_worker: int) -> DataLoader:
         """"""
-        data_set = cls(data_dict, type_data_set)
+        data_set = cls(data_set_dict)
         data_loader = DataLoader(data_set,
                                  batch_size=batch_sz,
                                  shuffle=is_shuffle,
                                  num_workers=num_of_worker,
-                                 pin_memory=pin_memory,
+                                 pin_memory=True,
                                  drop_last=True)
         return data_loader
 

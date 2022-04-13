@@ -312,6 +312,7 @@ class Tokenizer():
         self.overlap = token_tuple[1]
         self.step = token_tuple[2]
         self.detoken_len = None
+        self.num_token = None
 
     def tokenize(self, in_data: torch.tensor) -> torch.tensor:
         """"""
@@ -327,7 +328,8 @@ class Tokenizer():
                 pad_arr = torch.ones(num_of_padding) * pad_num
                 in_temp = torch.cat((in_temp, pad_arr.reshape(1, -1)), dim=1)
             out_data = in_temp.reshape(-1, self.t_len)
-            num_of_token = out_data.shape[0]
+            self.num_of_token = out_data.shape[0]
+            self.detoken_len = self.num_of_token * self.t_len
         else:
             num_of_step = math.ceil((d_size[0] - (self.t_len - self.step)) / self.step)
             self.detoken_len = (num_of_step - 1) * self.step + self.t_len
@@ -342,8 +344,8 @@ class Tokenizer():
                 index = stp * self.step
                 temp_token = in_temp[index:index + self.t_len]
                 out_data[stp, :] = temp_token
-            num_of_token = out_data.shape[0]
-        return out_data, num_of_token
+            self.num_of_token = out_data.shape[0]
+        return out_data
 
     def detokenize(self, in_data):
         """"""
@@ -466,3 +468,5 @@ def merge_dict(dict1, dict2):
 
 if __name__ == '__main__':
     pass
+
+
