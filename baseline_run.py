@@ -19,7 +19,7 @@ if __name__ == '__main__':
     import utility_function
     import preprocess
     import model_define
-    import trainer
+
     ###################################################################################################################
     # set the random seed
     RANDOM_SEED = 42
@@ -71,18 +71,5 @@ if __name__ == '__main__':
     # train
     m_log_dir = '.\\log'
     ###################################################################################################################
-    m_trainer = trainer.Trainer(device_type=m_device_type,
-                                log_dir=m_log_dir,
-                                data_path=m_data_path,
-                                batch_size=m_batch_size,
-                                workers=m_workers,
-                                model=m_model,
-                                model_param=m_model_param,
-                                optimizer_param=m_optimizer_param,
-                                scheduler_param=m_scheduler_param)
 
-    # train_mode:('pretrain', 'train')
-    m_trainer.run(train_mode='train',
-                  num_epoch=128,
-                  preprocessor=m_preprocessor)
     sys.exit(0)

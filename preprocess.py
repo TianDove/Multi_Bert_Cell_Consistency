@@ -30,6 +30,7 @@ class BaseProcessing():
 
     def pro(self,
             train_data: torch.Tensor,
+            train_mode: str,
             device: torch.device):
         """"""
         self.batch_size = train_data['label'].shape[0]
@@ -95,7 +96,7 @@ class MyMultiBertModelProcessing(object):
         temp_data_dict = self.tokenize_dict(temp_data_dict)
         temp_data_dict = utility_function.tensor_dict_to_device(temp_data_dict, device)
 
-        return [temp_data_dict, temp_label_arr, rpl_label]
+        return [temp_data_dict, temp_label_arr, rpl_label, train_mode]
 
 
     def next_para_replace(self,

@@ -17,7 +17,9 @@ if __name__ == '__main__':
     import utility_function
     import preprocess
     import model_define
-    import trainer
+    import multi_bert_model
+    import init_train_module
+
     ###################################################################################################################
     # set the random seed
     RANDOM_SEED = 42
@@ -25,22 +27,30 @@ if __name__ == '__main__':
     torch.manual_seed(RANDOM_SEED)
     ###################################################################################################################
     # set device
-    m_device_type = 'gpu'
-    ###################################################################################################################
-    # dataset file path
-    m_data_path = '.\\pik\\test_22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+    m_device = init_train_module.init_device('gpu', 0)
     ###################################################################################################################
     # set the data set parameters
-    m_batch_size = 32
-    m_workers = 1
+    m_data_set_path = '.\\pik\\test_22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+    m_rnd_token_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndtoken_32.pickle'
+    m_rnd_para_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndpara.pickle'
+
+    m_rnd_token = init_train_module.rnd_token_loader(m_rnd_token_path, m_device)
+    m_rnd_para = init_train_module.rnd_para_loader(m_rnd_para_path)
+
+    m_train_mode = 'pretrain'  # ('pretrain', 'train', 'test', 'finetune')
+    #           len(batch_size)
+    # pre-train        1
+    # other            3
+    batch_size = [4]
+    m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################
     # set preprocessing
-    m_preprocess_param = {
-        'token_tuple': (32, False, 1),
-        'rnd_para_data_path': '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndpara.pickle',
+    m_prepro_param = {
         'num_classes': 8,
+        'token_tuple': (32, False, 1),
+        'rnd_para_dict': m_rnd_para
     }
-    m_preprocessor = preprocess.MultiBertProcessing(**m_preprocess_param)
+    m_prepro = preprocess.MyMultiBertModelProcessing(**m_prepro_param)
 
     # preprocess parameter for baseline
     # m_preprocess_param = {
@@ -49,21 +59,18 @@ if __name__ == '__main__':
     # m_preprocessor = preprocess.BaseProcessing(**m_preprocess_param)
     ###################################################################################################################
     # model parameter for MultiBert
-    m_model = model_define.MyMulitBERTPreTrain
+    m_model = multi_bert_model.MyMultiBertModel
     m_model_param = {
-        'token_tuple': (32, False, 1),
-        'rnd_token_table': '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndtoken_32.pickle',
-        'batch_size': m_batch_size,
-        'embedding_token_dim': 16,
+        'token_len': 32,
+        'rnd_token': m_rnd_token,
         'max_num_seg': 5,
-        'max_token': 10000,
-        'encoder_para': (3, 4, 256),
-        'loss_fun': {
-            'mlm_loss': nn.MSELoss(),
-            'nsp_loss': nn.CrossEntropyLoss(),
-        },
-        'device': utility_function.try_gpu(),
+        'max_num_token': 100,
+        'embedding_dim': 16,
+        'n_layer': 3,
+        'n_head': 4,
+        'n_hid': 256
     }
+    m_init_model = init_train_module.init_model(m_model, m_model_param, m_device)
 
     # model parameter for baseline
     # m_model = model_define.BaseLine_MLP
@@ -89,22 +96,38 @@ if __name__ == '__main__':
         'last_epoch': -1,
         'verbose': False
     }
+    m_opt, m_sch = init_train_module.init_optimaizer_scheduler(m_init_model, m_optimizer_param, m_scheduler_param)
     ###################################################################################################################
     # train
     m_log_dir = '.\\log'
     ###################################################################################################################
-    m_trainer = trainer.Trainer(device_type=m_device_type,
-                                log_dir=m_log_dir,
-                                data_path=m_data_path,
-                                batch_size=m_batch_size,
-                                workers=m_workers,
-                                model=m_model,
-                                model_param=m_model_param,
-                                optimizer_param=m_optimizer_param,
-                                scheduler_param=m_scheduler_param)
+    # collect hyper parameter
+    m_hyper_param = {
+        'train_mode': m_train_mode,
+        'data_set': m_data_set_path,
+        'rnd_token': m_rnd_token_path,
+        'rnd_para': m_rnd_para_path,
+        'batch_size': batch_size[0],
+        'token_len': m_prepro_param['token_tuple'][0],
+        'model_name': m_init_model.model_name,
+        'max_num_seg': m_model_param['max_num_seg'],
+        'embedding_dim': m_model_param['embedding_dim'],
+        'n_layer': m_model_param['n_layer'],
+        'n_head': m_model_param['n_head'],
+        'n_hid': m_model_param['n_hid'],
+    }
+    ###################################################################################################################
+    m_trainer = init_train_module.Model_Run(device=m_device,
+                                            train_mode=m_train_mode,
+                                            num_epoch=512,
+                                            data_loader=m_data_loader_dict,
+                                            preprocessor=m_prepro,
+                                            model=m_init_model,
+                                            optimizer=m_opt,
+                                            scheduler=m_sch,
+                                            log_dir=m_log_dir,
+                                            hyper_param=m_hyper_param)
 
     # train_mode:('pretrain', 'train')
-    m_trainer.run(train_mode='pretrain',
-                  num_epoch=3,
-                  preprocessor=m_preprocessor)
+    m_trainer.run()
     sys.exit(0)

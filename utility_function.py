@@ -3,6 +3,7 @@ import os
 import sys
 import math
 import pickle
+import time
 from collections import Counter, OrderedDict
 
 import numpy as np
@@ -302,6 +303,135 @@ def plot_maj_min_divide_line(updated_centers_df: pd.DataFrame,
         return fig
 
 
+def intermedia_tensor_inspcetion(data: torch.tensor) -> np.array:
+    """"""
+    return data.detach().numpy()
+
+
+def intermedia_data_dict_inspcetion(data_dict: dict) -> np.array:
+    """"""
+    # data tensor visualization
+    tensor_list = []
+    for key, data in iter(data_dict.items()):
+        tensor_list.append(data.detach().numpy())
+    vis_arr = np.concatenate(tensor_list, axis=1)
+    return vis_arr
+
+
+def save_model_checkpoint(model, optimizer, epoch, loss, path):
+    """
+    save model checkpoint
+    """
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': loss
+    }, path)
+
+
+def load_model_checkpoint(path, model, optimizer):
+    """
+    load model checkpoint
+    """
+    checkpoint_dict = torch.load(path)
+    model.load_state_dict(checkpoint_dict['model_state_dict'])
+    optimizer.load_state_dict(checkpoint_dict['optimizer_state_dict'])
+    epoch = checkpoint_dict['epoch']
+    loss = checkpoint_dict['loss']
+    return model, optimizer, epoch, loss
+
+
+def tensor_dict_to_device(in_dict,
+                          device=torch.device('cpu')):
+    """"""
+    out_dict = {}
+    for key, value in iter(in_dict.items()):
+        out_dict[key] = value.to(device)
+
+    return out_dict
+
+
+def init_model(model):
+    """"""
+    for p in model.parameters():
+        if p.dim() > 1:
+            torch.nn.init.xavier_uniform_(p)
+    return model
+
+
+def para_simple_concat(in_data: dict):
+    """"""
+    for key, value in iter(in_data.items()):
+        if key != 'pretrain':
+            temp_cell_dict = value
+            temp_cat_list = []
+            for para_name, para_val in iter(temp_cell_dict.items()):
+                pass
+
+
+def write_txt(file_path, data):
+    if not os.path.exists(file_path):
+        with open(file_path, 'w', encoding='utf-8') as file:
+            print(data, file=file)
+    else:
+        with open(file_path, 'a', encoding='utf-8') as file:
+            print(data, file=file)
+
+
+def merge_dict(dict1, dict2):
+    """"""
+    return (dict2.update(dict1))
+
+
+class Accumulator:
+    """For accumulating sums over `n` variables."""
+    def __init__(self, n):
+        """Defined in :numref:`sec_softmax_scratch`"""
+        self.data = [0.0] * n  # 创建一个有n个元素的列表
+
+    def add(self, *args):  # 将*arg是按顺序加到对应的self.data的位置上
+        self.data = [a + float(b) for a, b in zip(self.data, args)]
+
+    def reset(self):
+        self.data = [0.0] * len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
+
+
+class Timer:
+    """记录多次运行时间(秒,s)"""
+    def __init__(self):
+        self.times = []
+        self.start()
+
+    def start(self):
+        """启动计时器"""
+        self.tik = time.time()
+
+    def stop(self):
+        """停止计时器并将时间记录在列表中"""
+        self.times.append(time.time() - self.tik)
+        return self.times[-1]
+
+    def avg(self):
+        """返回平均时间"""
+        return sum(self.times) / len(self.times)
+
+    def sum(self):
+        """返回时间总和"""
+        return sum(self.times)
+
+    def cumsum(self):
+        """返回累计时间"""
+        return np.array(self.times).cumsum().tolist()
+
+    def reset(self):
+        """清空计时器"""
+        self.times = []
+
+
 class Tokenizer():
     """"""
     def __init__(self, token_tuple=(32, True, 16)):
@@ -383,87 +513,6 @@ class Tokenizer():
         # convert data
         re_data = arr_token
         return re_data
-
-
-def intermedia_tensor_inspcetion(data: torch.tensor) -> np.array:
-    """"""
-    return data.detach().numpy()
-
-
-def intermedia_data_dict_inspcetion(data_dict: dict) -> np.array:
-    """"""
-    # data tensor visualization
-    tensor_list = []
-    for key, data in iter(data_dict.items()):
-        tensor_list.append(data.detach().numpy())
-    vis_arr = np.concatenate(tensor_list, axis=1)
-    return vis_arr
-
-
-def save_model_checkpoint(model, optimizer, epoch, loss, path):
-    """
-    save model checkpoint
-    """
-    torch.save({
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'loss': loss
-    }, path)
-
-
-def load_model_checkpoint(path, model, optimizer):
-    """
-    load model checkpoint
-    """
-    checkpoint_dict = torch.load(path)
-    model.load_state_dict(checkpoint_dict['model_state_dict'])
-    optimizer.load_state_dict(checkpoint_dict['optimizer_state_dict'])
-    epoch = checkpoint_dict['epoch']
-    loss = checkpoint_dict['loss']
-    return model, optimizer, epoch, loss
-
-
-def tensor_dict_to_device(in_dict,
-                          device=torch.device('cpu')):
-    """"""
-    out_dict = {}
-    for key, value in iter(in_dict.items()):
-        out_dict[key] = value.to(device)
-
-    return out_dict
-
-
-def init_model(model):
-    """"""
-    for p in model.parameters():
-        if p.dim() > 1:
-            torch.nn.init.xavier_uniform_(p)
-    return model
-
-
-def para_simple_concat(in_data: dict):
-    """"""
-    for key, value in iter(in_data.items()):
-        if key != 'pretrain':
-            temp_cell_dict = value
-            temp_cat_list = []
-            for para_name, para_val in iter(temp_cell_dict.items()):
-                pass
-
-
-def write_txt(file_path, data):
-    if not os.path.exists(file_path):
-        with open(file_path, 'w', encoding='utf-8') as file:
-            print(data, file=file)
-    else:
-        with open(file_path, 'a', encoding='utf-8') as file:
-            print(data, file=file)
-
-
-def merge_dict(dict1, dict2):
-    """"""
-    return (dict2.update(dict1))
 
 
 if __name__ == '__main__':

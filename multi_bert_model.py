@@ -224,18 +224,6 @@ class MyMultiBertModel(nn.Module):
         self.get_batch_size(inter_res)
         if train_mode == 'pretrain':
             inter_res, mlm_label = self.mask_token_batch(inter_res)
-        else:
-            if model_dict is None:
-                raise ValueError('Try to Finetune, But Pretrain Model dict is Empty')
-            self.special_token_embedding = None
-            # Token Embedding
-            self.token_embedding = None
-            # Segment Embedding
-            self.segment_embedding = None
-            # Positional Embedding
-            self.position_embedding = None
-            # Transformer Encoder
-            self.encoder_blk = None
 
         inter_res, segment_index, mlm_label = self.token_insert_batch(inter_res, mlm_label)
         inter_res = self.token_embedding(inter_res)
@@ -255,9 +243,8 @@ class MyMultiBertModel(nn.Module):
 
 
         if train_mode == 'pretrain':
-            self.MTP_batch_loss = 0.0
             mlm_pred = None
-            if mlm_label is not None:
+            if mlm_label != []:
                 mlm_pred = self.mask_token_pre_head(encoder_out, mlm_label)
 
                 # cat label
@@ -272,7 +259,7 @@ class MyMultiBertModel(nn.Module):
             # get 'CLS' token in batch
             if rpl_label is None:
                 raise ValueError('Error:Replace Parameter Label is None, When in Pre-Train Mode.')
-            self.NPP_batch_loss = 0.0
+
             batch_cls_token = encoder_out[:, 0, :]
             nsp_pred = self.next_para_pre_head(batch_cls_token)
             self.NPP_batch_loss = self.next_para_pre_loss(nsp_pred, rpl_label)
@@ -283,7 +270,7 @@ class MyMultiBertModel(nn.Module):
             self.model_batch_out = self.downstream_head(encoder_out)
             self.model_batch_loss = self.downstream_loss(self.model_batch_out, label)
 
-        return inputs
+        return self.model_batch_loss
 
     def get_segment_embedding(self, segment_index: list[int]):
         """"""
@@ -473,8 +460,56 @@ class MyMultiBertModel(nn.Module):
                 temp_mlm_pos_gt_list.append(temp_pos_gt_tuple)
 
         return temp_sequence_arr, segment_index, temp_mlm_pos_gt_list
-                    
 
+    def get_save_model(self):
+        """"""
+        attr_need = ['downstream_head',
+                     'downstream_loss',
+                     'batch_size',
+                     'dropout',
+                     'encoder_blk',
+                     'mask_token_pre_head',
+                     'mask_token_pred_loss',
+                     'max_num_seg',
+                     'max_num_token',
+                     'model_batch_loss',
+                     'model_name',
+                     'n_head',
+                     'n_hid',
+                     'n_layer',
+                     'next_para_pre_head',
+                     'next_para_pre_loss',
+                     'position_embedding',
+                     'scale',
+                     'segment_embedding',
+                     'special_token_embedding',
+                     'token_embedding',
+                     'token_len']
+
+        save_model_dict = {}
+        for attr in attr_need:
+            save_model_dict[attr] = getattr(self, attr)
+        return save_model_dict
+
+    def set_model_attr(self, model_attr_dict):
+        """"""
+        for attr, val in model_attr_dict.items():
+            setattr(self, attr, val)
+
+    def get_out(self):
+        return self.model_batch_out
+
+    def get_loss(self):
+        """"""
+        return self.model_batch_loss.item()
+
+    def get_mtp_loss(self):
+        """"""
+        return self.MTP_batch_loss.item()
+
+    def get_npp_loss(self):
+        """"""
+        return self.NPP_batch_loss.item()
 
     def get_batch_size(self, batch_data: dict[str, torch.tensor]):
         """"""

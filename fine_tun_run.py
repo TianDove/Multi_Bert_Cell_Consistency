@@ -38,7 +38,7 @@ if __name__ == '__main__':
     m_rnd_token = init_train_module.rnd_token_loader(m_rnd_token_path, m_device)
     m_rnd_para = init_train_module.rnd_para_loader(m_rnd_para_path)
 
-    m_train_mode = 'train'  # ('pretrain', 'train', 'val', 'test', 'finetune')
+    m_train_mode = 'train'  # ('pretrain', 'train', 'test', 'finetune')
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, [8, 8, 8])
 
     m_prepro_param = {
