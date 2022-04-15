@@ -39,7 +39,7 @@ def rnd_token_loader(rnd_token_file_path: str, device: torch.device = None) -> t
         raise FileNotFoundError
 
 
-def rnd_para_loader(rnd_para_file_path: str, device: torch.device = None) -> dict[str, torch.tensor]:
+def rnd_para_loader(rnd_para_file_path: str, device: torch.device = None) -> dict:
     """"""
     if os.path.exists(rnd_para_file_path):
         temp_rnd_para_tensor_dict = {}
@@ -57,9 +57,9 @@ def rnd_para_loader(rnd_para_file_path: str, device: torch.device = None) -> dic
 
 def init_data_loader_dict(data_set_file_path: str,
                           train_mode: str,
-                          batch_sz: list[int],
+                          batch_sz: list,
                           is_shuffle: bool = True,
-                          num_of_worker: int = 1) -> dict[str, DataLoader]:
+                          num_of_worker: int = 1) -> dict:
     """"""
     if os.path.exists(data_set_file_path):
         temp_data_set_dict = utility_function.read_pickle_file(data_set_file_path)
@@ -351,7 +351,7 @@ class Model_Run(object):
 
         return self.epoch_loss_accumulator.data[-1] / self.current_set_num_batch
 
-    def batch_iter(self, data_label: dict[str, torch.tensor]) -> torch.tensor:
+    def batch_iter(self, data_label: dict) -> torch.tensor:
         """"""
 
         # reset batch loss recorder
@@ -380,9 +380,10 @@ class Model_Run(object):
             self.current_batch_output = self.model.get_out()
             self.current_batch_output = self.current_batch_output.detach().cpu()
 
-        self.optimizer.zero_grad()
-        model_loss.backward()
-        self.optimizer.step()
+        if self.current_stage == 'Train':
+            self.optimizer.zero_grad()
+            model_loss.backward(retain_graph=True)
+            self.optimizer.step()
 
         # batch logging
         self.logging_batch()
@@ -489,7 +490,7 @@ class Model_Run(object):
     def write_res(self):
         """"""
         if self.train_mode == 'pretrain':
-            main_tag = f'{self.start_data_time}_{self.current_model_name}'
+            main_tag = f'{self.start_data_time}_{self.current_model_name}_{self.current_model_idx}'
 
             scalars_dict = {
                 'Loss': self.epoch_pretrain_loss_accumulator[0] / self.current_set_num_batch,

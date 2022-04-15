@@ -72,22 +72,20 @@ class MaskTokenPred(nn.Module):
     """BERT的掩蔽语言模型任务"""
     def __init__(self, in_len, embedding_token_dim, dropout=0.1):
         super(MaskTokenPred, self).__init__()
-        self.mlp = nn.Sequential(nn.Dropout(p=dropout),
-                                 nn.Linear(embedding_token_dim, embedding_token_dim // 2),
-                                 nn.GELU(),
-                                 nn.LayerNorm(embedding_token_dim // 2),
-                                 nn.Dropout(p=dropout),
-                                 nn.Linear(embedding_token_dim // 2, in_len))
+        self.dropout1 = nn.Dropout(p=dropout)
+        self.linear1 = nn.Linear(embedding_token_dim, embedding_token_dim // 2)
+        self.act = nn.GELU()
+        self.norm = nn.LayerNorm(embedding_token_dim // 2)
+        self.dropout2 = nn.Dropout(p=dropout)
+        self.linear2 = nn.Linear(embedding_token_dim // 2, in_len)
 
-    def forward(self, X, pred_positions):
-        temp_token_for_pred = []
-        for idx in iter(pred_positions):
-            pos = idx[0]
-            temp_token = X[:, pos, :].unsqueeze(1)
-            temp_token_for_pred.append(temp_token)
-        temp_token_for_pred = torch.cat(temp_token_for_pred, dim=1)
-
-        out_data = self.mlp(temp_token_for_pred)
+    def forward(self, in_data):
+        out_data = self.dropout1(in_data)
+        out_data = self.linear1(out_data)
+        out_data = self.act(out_data)
+        out_data = self.norm(out_data)
+        out_data = self.dropout2(out_data)
+        out_data = self.linear2(out_data)
         return out_data
 
 
@@ -213,12 +211,13 @@ class MyMultiBertModel(nn.Module):
         self.downstream_loss = nn.CrossEntropyLoss()
 
     def forward(self,
-                inputs: dict[str, torch.tensor],
+                inputs: dict,
                 label: torch.tensor = None,
                 rpl_label: torch.tensor = None,
-                train_mode: str = None,
-                model_dict = None):
+                train_mode: str = 'pretrain',
+                model_dict=None):
         """"""
+       # with torch.autograd.set_detect_anomaly(True):
         inter_res = inputs
         mlm_label = None
         self.get_batch_size(inter_res)
@@ -245,7 +244,14 @@ class MyMultiBertModel(nn.Module):
         if train_mode == 'pretrain':
             mlm_pred = None
             if mlm_label != []:
-                mlm_pred = self.mask_token_pre_head(encoder_out, mlm_label)
+                temp_token_for_pred = []
+                for idx in mlm_label:
+                    pos = idx[0]
+                    temp_token = encoder_out[:, pos, :].unsqueeze(1)
+                    temp_token_for_pred.append(temp_token)
+                temp_token_for_pred = torch.cat(temp_token_for_pred, dim=1)
+
+                mlm_pred = self.mask_token_pre_head(temp_token_for_pred)
 
                 # cat label
                 mlm_label_gt_list = []
@@ -264,7 +270,11 @@ class MyMultiBertModel(nn.Module):
             nsp_pred = self.next_para_pre_head(batch_cls_token)
             self.NPP_batch_loss = self.next_para_pre_loss(nsp_pred, rpl_label)
 
-            self.model_batch_loss = self.MTP_batch_loss + self.NPP_batch_loss
+            if self.MTP_batch_loss is None:
+                self.MTP_batch_loss = 0.0
+                self.model_batch_loss = self.NPP_batch_loss
+            else:
+                self.model_batch_loss = self.MTP_batch_loss + self.NPP_batch_loss
 
         else:
             self.model_batch_out = self.downstream_head(encoder_out)
@@ -272,7 +282,7 @@ class MyMultiBertModel(nn.Module):
 
         return self.model_batch_loss
 
-    def get_segment_embedding(self, segment_index: list[int]):
+    def get_segment_embedding(self, segment_index: list):
         """"""
         if segment_index != []:
             seg_embed_list = []
@@ -288,23 +298,23 @@ class MyMultiBertModel(nn.Module):
             raise ValueError('Empty Segment Index List')
 
     def mask_token_batch(self,
-                   batch_data: dict[str, torch.tensor],
+                   batch_data: dict,
                    mask_rate=0.15):
         """"""
         batch_data_size = self.batch_size
         mlm_para_label_list = []
         # get mask token embedding
 
-        ##################
-        data_df_list = []
-        ##################
+        # ##################
+        # data_df_list = []
+        # ##################
 
         mask_token = self.get_sp_token_batch('MASK')
         for para_name, para_value in iter(batch_data.items()):
             mlm_token_label_list = []
-            ###########################################################################
-            data_df = pd.DataFrame(data=para_value[0, :, :].cpu().detach().numpy())
-            ###########################################################################
+            # ###########################################################################
+            # data_df = pd.DataFrame(data=para_value[0, :, :].cpu().detach().numpy())
+            # ###########################################################################
             for token_idx in range(para_value.shape[1]):
                 temp_mask_token = None
                 mask_type = None
@@ -323,7 +333,7 @@ class MyMultiBertModel(nn.Module):
                         else:
                             # 10%的时间：用随机词替换该词
                             temp_mask_token = random.choice(self.rnd_token)
-                            temp_mask_token = temp_mask_token.reshape(1, -1)
+                            temp_mask_token = temp_mask_token.unsqueeze(0)
                             temp_mask_token = temp_mask_token.repeat(self.batch_size, 1)
                             mask_type = 'rnd'
 
@@ -331,28 +341,28 @@ class MyMultiBertModel(nn.Module):
                     para_value[:, token_idx, :] = temp_mask_token
                     temp_pred_positions_and_labels[-1] = mask_type
 
-                    #############################################################################################
-                    data_df.iloc[token_idx, :] = pd.Series(data=temp_mask_token[0, :].cpu().detach().numpy())
-                    data_df = data_df.rename(index={token_idx: mask_type})
-                    #############################################################################################
+                    # #############################################################################################
+                    # data_df.iloc[token_idx, :] = pd.Series(data=temp_mask_token[0, :].cpu().detach().numpy())
+                    # data_df = data_df.rename(index={token_idx: mask_type})
+                    # #############################################################################################
                     # token scale label list
                     mlm_token_label_list.append(temp_pred_positions_and_labels)
 
             # para scale label list
             mlm_para_label_list.append(mlm_token_label_list)
             
-            #############################
-            data_df_list.append(data_df)
-            #############################
+            # #############################
+            # data_df_list.append(data_df)
+            # #############################
         
-        ###############################################
-        all_data_df = pd.concat(data_df_list, axis=0)
-        ###############################################
+        # ###############################################
+        # all_data_df = pd.concat(data_df_list, axis=0)
+        # ###############################################
         return batch_data, mlm_para_label_list
 
     def token_insert_batch(self,
-                           batch_data: dict[str, torch.tensor],
-                           mlm_label = None):
+                           batch_data: dict,
+                           mlm_label=None):
         """"""
         # pad_token = self.get_sp_token_batch('PAD')
         sos_token = self.get_sp_token_batch('SOS').unsqueeze(1)
@@ -361,12 +371,12 @@ class MyMultiBertModel(nn.Module):
         cls_token = self.get_sp_token_batch('CLS').unsqueeze(1)
         # mask_token = self.get_sp_token_batch('MASK')
 
-        #####################################################################################
-        sp_token_tensor = self.special_token_embedding.weight
-        sp_token_tensor = sp_token_tensor.cpu().detach().numpy()
-        sp_token_df = pd.DataFrame(data=sp_token_tensor,
-                                   index=['PAD', 'SOS', 'EOS', 'STP', 'CLS', 'MASK'])
-        #####################################################################################
+        # #####################################################################################
+        # sp_token_tensor = self.special_token_embedding.weight
+        # sp_token_tensor = sp_token_tensor.detach().cpu().numpy()
+        # sp_token_df = pd.DataFrame(data=sp_token_tensor,
+        #                            index=['PAD', 'SOS', 'EOS', 'STP', 'CLS', 'MASK'])
+        # #####################################################################################
 
         curr_segment_index = [0]
 
@@ -377,6 +387,7 @@ class MyMultiBertModel(nn.Module):
         sequence_list = []
         paras_df_list = []
 
+        token_idx_list = []
         for para_name, para_val in batch_data.items():
             temp_segment_list = []
             temp_para_df_list = []
@@ -384,38 +395,49 @@ class MyMultiBertModel(nn.Module):
                 temp_segment_list.append(cls_token)
                 temp_segment_list.append(sos_token)
 
-                #################################################
-                temp_para_df_list.append(sp_token_df.loc[['CLS']])
-                temp_para_df_list.append(sp_token_df.loc[['SOS']])
-                ###################################################
+                token_idx_list.append('CLS')
+                token_idx_list.append('SOS')
+
+                # #################################################
+                # temp_para_df_list.append(sp_token_df.loc[['CLS']])
+                # temp_para_df_list.append(sp_token_df.loc[['SOS']])
+                # ###################################################
 
             temp_segment_list.append(para_val)
 
-            #######################################################
-            temp_para_df = para_val[0, :, :]
-            temp_para_df = temp_para_df.cpu().detach().numpy()
-            temp_para_df = pd.DataFrame(data=temp_para_df)
-            if  mlm_label is not None:
+            tmp_size = para_val.shape
+            temp_idx_list = ['None'] * tmp_size[1]
+            if mlm_label is not None:
                 temp_para_mask_id_list = mlm_label[curr_segment_index[0]]
                 for id, _, mask_type in temp_para_mask_id_list:
-                    temp_para_df = temp_para_df.rename(index={id: mask_type})
-            temp_para_df_list.append(temp_para_df)
-            #######################################################
+                    temp_idx_list[id] = mask_type
+            token_idx_list = token_idx_list + temp_idx_list
+
+            # #######################################################
+            # temp_para_df = para_val[0, :, :].detach().cpu().numpy()
+            # temp_para_df = pd.DataFrame(data=temp_para_df)
+            # if mlm_label is not None:
+            #     temp_para_mask_id_list = mlm_label[curr_segment_index[0]]
+            #     for id, _, mask_type in temp_para_mask_id_list:
+            #         temp_para_df = temp_para_df.rename(index={id: mask_type})
+            # temp_para_df_list.append(temp_para_df)
+            # #######################################################
 
 
             if curr_segment_index[0] != (self.max_num_seg - 1):
                 temp_segment_list.append(stp_token)
+                token_idx_list.append('STP')
 
-                #################################################
-                temp_para_df_list.append(sp_token_df.loc[['STP']])
-                ###################################################
+                # #################################################
+                # temp_para_df_list.append(sp_token_df.loc[['STP']])
+                # ###################################################
 
             else:
                 temp_segment_list.append(eos_token)
-
-                #################################################
-                temp_para_df_list.append(sp_token_df.loc[['EOS']])
-                ###################################################
+                token_idx_list.append('EOS')
+                # #################################################
+                # temp_para_df_list.append(sp_token_df.loc[['EOS']])
+                # ###################################################
 
             # concat tokens
             temp_segment_arr = torch.cat(temp_segment_list, dim=1)
@@ -423,20 +445,20 @@ class MyMultiBertModel(nn.Module):
             sequence_list.append(temp_segment_arr)
 
 
-            #######################################################
-            temp_para_with_sp_df = pd.concat(temp_para_df_list, axis=0)
-            paras_df_list.append(temp_para_with_sp_df )
-            #######################################################
+            # #######################################################
+            # temp_para_with_sp_df = pd.concat(temp_para_df_list, axis=0)
+            # paras_df_list.append(temp_para_with_sp_df)
+            # #######################################################
 
             # generate segment index
             temp_segment_idx = curr_segment_index * temp_segment_arr.shape[1]
-            segment_index += temp_segment_idx
-            curr_segment_index[0] += 1
+            segment_index = segment_index + temp_segment_idx
+            curr_segment_index[0] = curr_segment_index[0] + 1
 
         temp_sequence_arr = torch.cat(sequence_list, dim=1)
-        ################################################
-        paras_df = pd.concat(paras_df_list, axis=0)
-        ################################################
+        # ################################################
+        # paras_df = pd.concat(paras_df_list, axis=0)
+        # ################################################
 
         temp_mlm_pos_gt_list = None
         if mlm_label is not None:
@@ -449,8 +471,7 @@ class MyMultiBertModel(nn.Module):
 
             # get mask token position
             temp_mlm_pos_list = []
-            index_list = list(paras_df.index)
-            for i, index in enumerate(index_list):
+            for i, index in enumerate(token_idx_list):
                 if index in ['mask', 'rnd', 'org']:
                     temp_mlm_pos_list.append(i)
 
@@ -511,7 +532,7 @@ class MyMultiBertModel(nn.Module):
         """"""
         return self.NPP_batch_loss.item()
 
-    def get_batch_size(self, batch_data: dict[str, torch.tensor]):
+    def get_batch_size(self, batch_data: dict):
         """"""
         para_list = list(batch_data.keys())
         first_para_data_size = batch_data[para_list[0]].shape
@@ -551,3 +572,137 @@ class MyMultiBertModel(nn.Module):
             return temp_sp_token
         else:
             raise ValueError('Special Token Index Error')
+
+
+if __name__ == '__main__':
+    import multiprocessing
+
+    multiprocessing.freeze_support()
+    ###################################################################################################################
+    # std import
+    import os
+    import sys
+    ###################################################################################################################
+    # third party import
+    import numpy as np
+    import torch
+    import torch.nn as nn
+    ###################################################################################################################
+    # app specific import
+    import utility_function
+    import preprocess
+    import init_train_module
+
+    ###################################################################################################################
+    # set the random seed
+    RANDOM_SEED = 42
+    np.random.seed(RANDOM_SEED)
+    torch.manual_seed(RANDOM_SEED)
+    ###################################################################################################################
+    # set device
+    m_device = init_train_module.init_device('gpu', 0)
+    ###################################################################################################################
+    # set the data set parameters
+    m_data_set_path = '.\\pik\\22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+    m_rnd_token_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndtoken_32.pickle'
+    m_rnd_para_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndpara.pickle'
+
+    m_rnd_token = init_train_module.rnd_token_loader(m_rnd_token_path, m_device)
+    m_rnd_para = init_train_module.rnd_para_loader(m_rnd_para_path)
+
+    m_train_mode = 'pretrain'  # ('pretrain', 'train', 'test', 'finetune')
+    #           len(batch_size)
+    # pre-train        1
+    # other            3
+    batch_size = [256]
+    m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size, False)
+    ###################################################################################################################
+    # set preprocessing
+    m_prepro_param = {
+        'num_classes': 8,
+        'token_tuple': (32, False, 1),
+        'rnd_para_dict': m_rnd_para
+    }
+    m_prepro = preprocess.MyMultiBertModelProcessing(**m_prepro_param)
+
+    # preprocess parameter for baseline
+    # m_preprocess_param = {
+    #     'num_classes': 8,
+    # }
+    # m_preprocessor = preprocess.BaseProcessing(**m_preprocess_param)
+    ###################################################################################################################
+    # model parameter for MultiBert
+    m_model_param = {
+        'token_len': 32,
+        'rnd_token': m_rnd_token,
+        'max_num_seg': 5,
+        'max_num_token': 100,
+        'embedding_dim': 16,
+        'n_layer': 3,
+        'n_head': 4,
+        'n_hid': 256
+    }
+    m_init_model = MyMultiBertModel(**m_model_param).to(m_device)
+
+    # model parameter for baseline
+    # m_model = model_define.BaseLine_MLP
+    # m_model_param = {
+    #     'in_dim': 1021,
+    #     'num_cls': 8,
+    #     'loss_func': nn.CrossEntropyLoss(),
+    # }
+    ###################################################################################################################
+    # optimizer and scheduler set up
+    m_optimizer_param = {
+        'optimizer_name': 'Adam',
+        'lr': 0.0001,
+        'betas': (0.9, 0.98),
+        'eps': 1e-9,
+        'weight_decay': 0,
+        'amsgrad': False,
+    }
+    m_scheduler_param = {
+        'scheduler name': 'StepLR',
+        'step_size': 16,
+        'gamma': 0.95,
+        'last_epoch': -1,
+        'verbose': False
+    }
+    m_opt, m_sch = init_train_module.init_optimaizer_scheduler(m_init_model, m_optimizer_param, m_scheduler_param)
+    ###################################################################################################################
+    # train
+    m_log_dir = '.\\log'
+    ###################################################################################################################
+    # collect hyper parameter
+    m_hyper_param = {
+        'train_mode': m_train_mode,
+        'data_set': m_data_set_path,
+        'rnd_token': m_rnd_token_path,
+        'rnd_para': m_rnd_para_path,
+        'batch_size': batch_size[0],
+        'token_len': m_prepro_param['token_tuple'][0],
+        'model_name': m_init_model.model_name,
+        'max_num_seg': m_model_param['max_num_seg'],
+        'embedding_dim': m_model_param['embedding_dim'],
+        'n_layer': m_model_param['n_layer'],
+        'n_head': m_model_param['n_head'],
+        'n_hid': m_model_param['n_hid'],
+    }
+
+    for epoch_idx in range(32):
+        # set model to train mode
+        m_init_model.train()
+        for batch_idx, data_label in enumerate(m_data_loader_dict[m_train_mode]):
+            with torch.autograd.set_detect_anomaly(True):
+                # pre-process
+                input_list = m_prepro.pro(data_label,
+                                          m_train_mode,
+                                          m_device)
+
+                model_loss = m_init_model(*input_list)
+
+                m_opt.zero_grad()
+                model_loss.backward(retain_graph=True)
+                m_opt.step()
+
+            print(f'epoch: {epoch_idx},batch: {batch_idx}')

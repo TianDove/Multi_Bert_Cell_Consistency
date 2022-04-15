@@ -57,7 +57,7 @@ class MyMultiBertModelProcessing(object):
     def __init__(self,
                  num_classes,
                  token_tuple: tuple,
-                 rnd_para_dict: dict[str, torch.tensor]):
+                 rnd_para_dict: dict):
         """"""
         self.token_tuple = token_tuple
         self.num_classes = num_classes
@@ -100,7 +100,7 @@ class MyMultiBertModelProcessing(object):
 
 
     def next_para_replace(self,
-                          batch_data: dict[str, torch.tensor],
+                          batch_data: dict,
                           rpl_rate: float = 0.5):
         """"""
         para_type = list(batch_data.keys())
@@ -138,7 +138,7 @@ class MyMultiBertModelProcessing(object):
         return batch_data, replace_abel
 
     def tokenize_dict(self,
-                 batch_data: dict[str, torch.tensor]) -> dict[str, torch.tensor]:
+                 batch_data: dict) -> dict:
         """"""
         num_token = 0
 

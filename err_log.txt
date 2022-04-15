@@ -1,0 +1,41 @@
+RuntimeError: Trying to backward through the graph a second time, but the buffers have already been freed
+
+[W ..\torch\csrc\autograd\python_anomaly_mode.cpp:104] Warning: Error detected in MmBackward0. Traceback of forward call that caused the error:
+  File "C:\Program Files\JetBrains\PyCharm Community Edition 2021.1.2\plugins\python-ce\helpers\pydev\pydevd.py", line 2173, in <module>
+    main()
+  File "C:\Program Files\JetBrains\PyCharm Community Edition 2021.1.2\plugins\python-ce\helpers\pydev\pydevd.py", line 2164, in main
+    globals = debugger.run(setup['file'], None, None, is_module)
+  File "C:\Program Files\JetBrains\PyCharm Community Edition 2021.1.2\plugins\python-ce\helpers\pydev\pydevd.py", line 1476, in run
+    return self._exec(is_module, entry_point_fn, module_name, file, globals, locals)
+  File "C:\Program Files\JetBrains\PyCharm Community Edition 2021.1.2\plugins\python-ce\helpers\pydev\pydevd.py", line 1483, in _exec
+    pydev_imports.execfile(file, globals, locals)  # execute the script
+  File "C:\Program Files\JetBrains\PyCharm Community Edition 2021.1.2\plugins\python-ce\helpers\pydev\_pydev_imps\_pydev_execfile.py", line 18, in execfile
+    exec(compile(contents+"\n", file, 'exec'), glob, loc)
+  File "C:/MyFile/python_workspace/wx/MultiBert_Consist/multi_bert_model.py", line 702, in <module>
+    model_loss = m_init_model(*input_list)
+  File "C:\ProgramData\Anaconda3\envs\pt1101_cudu113_py38\lib\site-packages\torch\nn\modules\module.py", line 1102, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "C:/MyFile/python_workspace/wx/MultiBert_Consist/multi_bert_model.py", line 254, in forward
+    mlm_pred = self.mask_token_pre_head(temp_token_for_pred)
+  File "C:\ProgramData\Anaconda3\envs\pt1101_cudu113_py38\lib\site-packages\torch\nn\modules\module.py", line 1102, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "C:/MyFile/python_workspace/wx/MultiBert_Consist/multi_bert_model.py", line 88, in forward
+    out_data = self.linear2(out_data)
+  File "C:\ProgramData\Anaconda3\envs\pt1101_cudu113_py38\lib\site-packages\torch\nn\modules\module.py", line 1102, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "C:\ProgramData\Anaconda3\envs\pt1101_cudu113_py38\lib\site-packages\torch\nn\modules\linear.py", line 103, in forward
+    return F.linear(input, self.weight, self.bias)
+  File "C:\ProgramData\Anaconda3\envs\pt1101_cudu113_py38\lib\site-packages\torch\nn\functional.py", line 1848, in linear
+    return torch._C._nn.linear(input, weight, bias)
+ (function _print_stack)
+Traceback (most recent call last):
+  File "C:/MyFile/python_workspace/wx/MultiBert_Consist/multi_bert_model.py", line 705, in <module>
+    model_loss.backward(retain_graph=True)
+  File "C:\ProgramData\Anaconda3\envs\pt1101_cudu113_py38\lib\site-packages\torch\_tensor.py", line 307, in backward
+    torch.autograd.backward(self, gradient, retain_graph, create_graph, inputs=inputs)
+  File "C:\ProgramData\Anaconda3\envs\pt1101_cudu113_py38\lib\site-packages\torch\autograd\__init__.py", line 154, in backward
+    Variable._execution_engine.run_backward(
+RuntimeError: one of the variables needed for gradient computation has been modified by an inplace operation: [torch.cuda.FloatTensor [8, 32]], which is output 0 of AsStridedBackward0, is at version 32; expected version 31 instead. Hint: the backtrace further above shows the operation that failed to compute its gradient. The variable in question was changed in there or anywhere later. Good luck!
+python-BaseException
+
+Process finished with exit code -1
