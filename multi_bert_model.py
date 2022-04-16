@@ -223,18 +223,30 @@ class MyMultiBertModel(nn.Module):
                 model_dict=None):
         """"""
         with torch.autograd.set_detect_anomaly(True):
-           # with torch.autograd.set_detect_anomaly(True):
+            # with torch.autograd.set_detect_anomaly(True):
             inter_res = inputs
             mlm_label = None
             self.get_batch_size(inter_res)
-            if train_mode == 'pretrain':
-                inter_res, mlm_label = self.mask_token_batch(inter_res)
 
-            inter_res, segment_index, mlm_label = self.token_insert_batch(inter_res, mlm_label)
+            # special token tensor
+            temp_sp_idx_tensor = torch.tensor([0, 1, 2, 3, 4, 5],
+                                              dtype=torch.long,
+                                              device=self.device)
+            sp_token_tensor = self.special_token_embedding(temp_sp_idx_tensor)
+            sp_token_tensor = sp_token_tensor.unsqueeze(0)
+            sp_token_tensor = sp_token_tensor.repeat(self.batch_size, 1, 1)
+
+            if train_mode == 'pretrain':
+                inter_res, mlm_label = self.mask_token_batch(sp_token_tensor, inter_res)
+
+            inter_res, segment_index, mlm_label = self.token_insert_batch(sp_token_tensor, inter_res, mlm_label)
             inter_res = self.token_embedding(inter_res)
 
             # get segments embedding
-            segments_embedding = self.get_segment_embedding(segment_index)
+            temp_seg_idx_tensor = torch.tensor(segment_index,
+                                               dtype=torch.long,
+                                               device=self.device)
+            segments_embedding = self.segment_embedding(temp_seg_idx_tensor)
 
             seg_pos_embedding = segments_embedding + self.position_embedding[:, 0:len(segment_index), :]
 
@@ -301,8 +313,9 @@ class MyMultiBertModel(nn.Module):
             raise ValueError('Empty Segment Index List')
 
     def mask_token_batch(self,
-                   batch_data: dict,
-                   mask_rate=0.15):
+                         sp_token_tensor,
+                         batch_data: dict,
+                         mask_rate=0.15):
         """"""
         batch_data_size = self.batch_size
         mlm_para_label_list = []
@@ -313,7 +326,7 @@ class MyMultiBertModel(nn.Module):
         # ##################
 
         out_data_dict = {}
-        mask_token = self.get_sp_token_batch('MASK').repeat(self.batch_size, 1)
+        in_mask_token = torch.clone(sp_token_tensor[:, 5, :])
         for para_name, para_value in iter(batch_data.items()):
             mlm_token_label_list = []
             temp_para_value = para_value
@@ -329,7 +342,7 @@ class MyMultiBertModel(nn.Module):
 
                     if random.random() < 0.8:
                         # 80%的时间：将词替换为“<mask>”词元
-                        temp_mask_token = mask_token
+                        temp_mask_token = in_mask_token
                         mask_type = 'mask'
                     else:
                         if random.random() < 0.5:
@@ -370,14 +383,15 @@ class MyMultiBertModel(nn.Module):
         return out_data_dict, mlm_para_label_list
 
     def token_insert_batch(self,
+                           sp_token_tensor,
                            batch_data: dict,
                            mlm_label=None):
         """"""
         # pad_token = self.get_sp_token_batch('PAD')
-        sos_token = self.get_sp_token_batch('SOS').unsqueeze(0).repeat(self.batch_size, 1, 1)
-        eos_token = self.get_sp_token_batch('EOS').unsqueeze(0).repeat(self.batch_size, 1, 1)
-        stp_token = self.get_sp_token_batch('STP').unsqueeze(0).repeat(self.batch_size, 1, 1)
-        cls_token = self.get_sp_token_batch('CLS').unsqueeze(0).repeat(self.batch_size, 1, 1)
+        sos_token = torch.clone(sp_token_tensor[:, 1, :]).unsqueeze(0)
+        eos_token = torch.clone(sp_token_tensor[:, 2, :]).unsqueeze(0)
+        stp_token = torch.clone(sp_token_tensor[:, 3, :]).unsqueeze(0)
+        cls_token = torch.clone(sp_token_tensor[:, 4, :]).unsqueeze(0)
         # mask_token = self.get_sp_token_batch('MASK')
 
         # #####################################################################################
