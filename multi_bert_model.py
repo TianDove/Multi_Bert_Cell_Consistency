@@ -388,10 +388,10 @@ class MyMultiBertModel(nn.Module):
                            mlm_label=None):
         """"""
         # pad_token = self.get_sp_token_batch('PAD')
-        sos_token = torch.clone(sp_token_tensor[:, 1, :]).unsqueeze(0)
-        eos_token = torch.clone(sp_token_tensor[:, 2, :]).unsqueeze(0)
-        stp_token = torch.clone(sp_token_tensor[:, 3, :]).unsqueeze(0)
-        cls_token = torch.clone(sp_token_tensor[:, 4, :]).unsqueeze(0)
+        sos_token = torch.clone(sp_token_tensor[:, 1, :]).unsqueeze(1)
+        eos_token = torch.clone(sp_token_tensor[:, 2, :]).unsqueeze(1)
+        stp_token = torch.clone(sp_token_tensor[:, 3, :]).unsqueeze(1)
+        cls_token = torch.clone(sp_token_tensor[:, 4, :]).unsqueeze(1)
         # mask_token = self.get_sp_token_batch('MASK')
 
         # #####################################################################################
