@@ -222,68 +222,69 @@ class MyMultiBertModel(nn.Module):
                 train_mode: str = 'pretrain',
                 model_dict=None):
         """"""
-       # with torch.autograd.set_detect_anomaly(True):
-        inter_res = inputs
-        mlm_label = None
-        self.get_batch_size(inter_res)
-        if train_mode == 'pretrain':
-            inter_res, mlm_label = self.mask_token_batch(inter_res)
+        with torch.autograd.set_detect_anomaly(True):
+           # with torch.autograd.set_detect_anomaly(True):
+            inter_res = inputs
+            mlm_label = None
+            self.get_batch_size(inter_res)
+            if train_mode == 'pretrain':
+                inter_res, mlm_label = self.mask_token_batch(inter_res)
 
-        inter_res, segment_index, mlm_label = self.token_insert_batch(inter_res, mlm_label)
-        inter_res = self.token_embedding(inter_res)
+            inter_res, segment_index, mlm_label = self.token_insert_batch(inter_res, mlm_label)
+            inter_res = self.token_embedding(inter_res)
 
-        # get segments embedding
-        segments_embedding = self.get_segment_embedding(segment_index)
+            # get segments embedding
+            segments_embedding = self.get_segment_embedding(segment_index)
 
-        seg_pos_embedding = segments_embedding + self.position_embedding[:, 0:len(segment_index), :]
+            seg_pos_embedding = segments_embedding + self.position_embedding[:, 0:len(segment_index), :]
 
-        seg_pos_embedding = seg_pos_embedding.repeat(self.batch_size, 1, 1)
+            seg_pos_embedding = seg_pos_embedding.repeat(self.batch_size, 1, 1)
 
-        # add position embedding and segment embedding to the data
-        inter_res = inter_res + (self.scale * seg_pos_embedding)
+            # add position embedding and segment embedding to the data
+            inter_res = inter_res + (self.scale * seg_pos_embedding)
 
-        # encoder input B * L * EB
-        encoder_out = self.encoder_blk(inter_res)
+            # encoder input B * L * EB
+            encoder_out = self.encoder_blk(inter_res)
 
 
-        if train_mode == 'pretrain':
-            mlm_pred = None
-            if mlm_label != []:
-                temp_token_for_pred = []
-                for idx in mlm_label:
-                    pos = idx[0]
-                    temp_token = encoder_out[:, pos, :].unsqueeze(1)
-                    temp_token_for_pred.append(temp_token)
-                temp_token_for_pred = torch.cat(temp_token_for_pred, dim=1)
+            if train_mode == 'pretrain':
+                mlm_pred = None
+                if mlm_label != []:
+                    temp_token_for_pred = []
+                    for idx in mlm_label:
+                        pos = idx[0]
+                        temp_token = encoder_out[:, pos, :].unsqueeze(1)
+                        temp_token_for_pred.append(temp_token)
+                    temp_token_for_pred = torch.cat(temp_token_for_pred, dim=1)
 
-                mlm_pred = self.mask_token_pre_head(temp_token_for_pred)
+                    mlm_pred = self.mask_token_pre_head(temp_token_for_pred)
 
-                # cat label
-                mlm_label_gt_list = []
-                for id, gt in mlm_label:
-                    temp_gt = gt.unsqueeze(1)
-                    mlm_label_gt_list.append(temp_gt)
-                mlm_label_tensor = torch.cat(mlm_label_gt_list, dim=1)
+                    # cat label
+                    mlm_label_gt_list = []
+                    for id, gt in mlm_label:
+                        temp_gt = gt.unsqueeze(1)
+                        mlm_label_gt_list.append(temp_gt)
+                    mlm_label_tensor = torch.cat(mlm_label_gt_list, dim=1)
 
-                self.MTP_batch_loss = self.mask_token_pred_loss(mlm_pred, mlm_label_tensor)
+                    self.MTP_batch_loss = self.mask_token_pred_loss(mlm_pred, mlm_label_tensor)
 
-            # get 'CLS' token in batch
-            if rpl_label is None:
-                raise ValueError('Error:Replace Parameter Label is None, When in Pre-Train Mode.')
+                # get 'CLS' token in batch
+                if rpl_label is None:
+                    raise ValueError('Error:Replace Parameter Label is None, When in Pre-Train Mode.')
 
-            batch_cls_token = encoder_out[:, 0, :]
-            nsp_pred = self.next_para_pre_head(batch_cls_token)
-            self.NPP_batch_loss = self.next_para_pre_loss(nsp_pred, rpl_label)
+                batch_cls_token = encoder_out[:, 0, :]
+                nsp_pred = self.next_para_pre_head(batch_cls_token)
+                self.NPP_batch_loss = self.next_para_pre_loss(nsp_pred, rpl_label)
 
-            if self.MTP_batch_loss is None:
-                self.MTP_batch_loss = 0.0
-                self.model_batch_loss = self.NPP_batch_loss
+                if self.MTP_batch_loss is None:
+                    self.MTP_batch_loss = 0.0
+                    self.model_batch_loss = self.NPP_batch_loss
+                else:
+                    self.model_batch_loss = self.MTP_batch_loss + self.NPP_batch_loss
+
             else:
-                self.model_batch_loss = self.MTP_batch_loss + self.NPP_batch_loss
-
-        else:
-            self.model_batch_out = self.downstream_head(encoder_out)
-            self.model_batch_loss = self.downstream_loss(self.model_batch_out, label)
+                self.model_batch_out = self.downstream_head(encoder_out)
+                self.model_batch_loss = self.downstream_loss(self.model_batch_out, label)
 
         return self.model_batch_loss
 
@@ -345,7 +346,7 @@ class MyMultiBertModel(nn.Module):
                             mask_type = 'rnd'
 
                     # replace token in the sequence
-                    temp_para_value[:, token_idx, :] = temp_mask_token
+                    temp_para_value[:, token_idx, :] = torch.clone(temp_mask_token)
                     temp_pred_positions_and_labels[-1] = mask_type
 
                     # #############################################################################################
@@ -400,8 +401,8 @@ class MyMultiBertModel(nn.Module):
             temp_segment_list = []
             temp_para_df_list = []
             if curr_segment_index[0] == 0:
-                temp_segment_list.append(cls_token)
-                temp_segment_list.append(sos_token)
+                temp_segment_list.append(torch.clone(cls_token))
+                temp_segment_list.append(torch.clone(sos_token))
 
                 token_idx_list.append('CLS')
                 token_idx_list.append('SOS')
@@ -433,7 +434,7 @@ class MyMultiBertModel(nn.Module):
 
 
             if curr_segment_index[0] != (self.max_num_seg - 1):
-                temp_segment_list.append(stp_token)
+                temp_segment_list.append(torch.clone(stp_token))
                 token_idx_list.append('STP')
 
                 # #################################################
@@ -441,7 +442,7 @@ class MyMultiBertModel(nn.Module):
                 # ###################################################
 
             else:
-                temp_segment_list.append(eos_token)
+                temp_segment_list.append(torch.clone(eos_token))
                 token_idx_list.append('EOS')
                 # #################################################
                 # temp_para_df_list.append(sp_token_df.loc[['EOS']])
@@ -624,7 +625,7 @@ if __name__ == '__main__':
     #           len(batch_size)
     # pre-train        1
     # other            3
-    batch_size = [3]
+    batch_size = [256]
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size, False)
     ###################################################################################################################
     # set preprocessing

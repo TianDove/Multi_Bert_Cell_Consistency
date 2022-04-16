@@ -368,6 +368,7 @@ class Model_Run(object):
         # start model timer
         self.model_timer.start()
 
+
         # run model
         model_loss = self.model(*input_list)
 

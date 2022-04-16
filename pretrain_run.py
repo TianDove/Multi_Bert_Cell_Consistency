@@ -34,14 +34,14 @@ if __name__ == '__main__':
     m_rnd_token_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndtoken_32.pickle'
     m_rnd_para_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndpara.pickle'
 
-    m_rnd_token = init_train_module.rnd_token_loader(m_rnd_token_path, m_device)
+    m_rnd_token = init_train_module.rnd_token_loader(m_rnd_token_path)
     m_rnd_para = init_train_module.rnd_para_loader(m_rnd_para_path)
 
     m_train_mode = 'pretrain'  # ('pretrain', 'train', 'test', 'finetune')
     #           len(batch_size)
     # pre-train        1
     # other            3
-    batch_size = [256]
+    batch_size = [4]
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################
     # set preprocessing
@@ -61,6 +61,7 @@ if __name__ == '__main__':
     # model parameter for MultiBert
     m_model = multi_bert_model.MyMultiBertModel
     m_model_param = {
+        'device': m_device,
         'token_len': 32,
         'rnd_token': m_rnd_token,
         'max_num_seg': 5,
@@ -119,7 +120,7 @@ if __name__ == '__main__':
     ###################################################################################################################
     m_trainer = init_train_module.Model_Run(device=m_device,
                                             train_mode=m_train_mode,
-                                            num_epoch=512,
+                                            num_epoch=1024,
                                             data_loader=m_data_loader_dict,
                                             preprocessor=m_prepro,
                                             model=m_init_model,
