@@ -86,6 +86,10 @@ class MaskTokenPred(nn.Module):
         out_data = self.act(out_data)
         out_data = self.norm(out_data)
         out_data = self.dropout2(out_data)
+        # TODO: RuntimeError: one of the variables needed for gradient computation
+        #  has been modified by an inplace operation: [torch.cuda.FloatTensor [8, 32]]
+        #  which is output 0 of AsStridedBackward0
+        #  The variable in question was changed in there or anywhere later.
         out_data = self.linear2(out_data)
         return out_data
 
@@ -220,7 +224,8 @@ class MyMultiBertModel(nn.Module):
                 label: torch.tensor = None,
                 rpl_label: torch.tensor = None,
                 train_mode: str = 'pretrain',
-                model_dict=None):
+                model_dict=None,
+                opt=None):
         """"""
         with torch.autograd.set_detect_anomaly(True):
             # with torch.autograd.set_detect_anomaly(True):
@@ -297,6 +302,12 @@ class MyMultiBertModel(nn.Module):
             else:
                 self.model_batch_out = self.downstream_head(encoder_out)
                 self.model_batch_loss = self.downstream_loss(self.model_batch_out, label)
+
+
+            if opt is not None:
+                opt.zero_grad()
+                self.model_batch_loss.backward(retain_graph=True)
+                opt.step()
 
         return self.model_batch_loss
 
@@ -732,7 +743,7 @@ if __name__ == '__main__':
                     #                      [])
                     #     add_graph_flag = True
 
-                    model_loss = m_init_model(*input_list)
+                    model_loss = m_init_model(*input_list, opt=m_opt)
 
                     # g = make_dot(model_loss,
                     #              params=dict(m_init_model.named_parameters()),
@@ -740,8 +751,8 @@ if __name__ == '__main__':
                     #              show_saved=True)
                     # g.render(filename='graph', view=False)
 
-                    m_opt.zero_grad()
-                    model_loss.backward(retain_graph=True)
-                    m_opt.step()
+                    # m_opt.zero_grad()
+                    # model_loss.backward(retain_graph=True)
+                    # m_opt.step()
 
                 print(f'epoch: {epoch_idx},batch: {batch_idx}')
