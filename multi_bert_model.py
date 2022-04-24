@@ -262,9 +262,10 @@ class MyMultiBertModel(nn.Module):
                 # ###########################################################################
                 rpl_count = 0
                 for token_idx in range(temp_para_value.shape[1]):
-                    temp_org_token = temp_para_value[:, token_idx, :]
-                    temp_pred_positions_and_labels = [token_idx, temp_org_token, 'None']
                     if random.random() < self.mask_rate:
+                        temp_org_token = temp_para_value[:, token_idx, :]
+                        temp_pred_positions_and_labels = [token_idx, torch.clone(temp_org_token), 'None']
+
                         rpl_count = rpl_count + 1
 
                         if random.random() < 0.8:

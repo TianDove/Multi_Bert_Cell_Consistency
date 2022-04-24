@@ -334,6 +334,7 @@ class DataPreProcess(object):
                 temp_max = data.max()
                 temp_min = data.min()
                 temp_cell_voltage_data = (data - temp_min) / (temp_max - temp_min)
+            elif norm_type == 'Std':
                 pass
             else:
                 raise ValueError
