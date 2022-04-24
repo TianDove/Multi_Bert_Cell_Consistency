@@ -446,6 +446,7 @@ class MyMultiBertModel(nn.Module):
         mlm_pred = None
         nsp_pred = None
         mlm_label_tensor = None
+        down_out = None
         if train_mode == 'pretrain':
             if temp_mlm_pos_gt_list:
                 temp_token_label_list = []
@@ -470,218 +471,14 @@ class MyMultiBertModel(nn.Module):
 
             batch_cls_token = torch.clone(encoder_out[:, 0, :])
             nsp_pred = self.next_para_pre_head(batch_cls_token)
-
+        else:
+            down_out = self.downstream_head(torch.clone(encoder_out))
         # if opt is not None:
         #     opt.zero_grad()
         #     self.model_batch_loss.backward(retain_graph=True)
         #     opt.step()
 
-        return mlm_pred, nsp_pred, mlm_label_tensor, rpl_label
-
-    def get_segment_embedding(self, segment_index: list):
-        """"""
-        if segment_index != []:
-            temp_seg_idx_tensor = torch.tensor(segment_index,
-                                               dtype=torch.long,
-                                               device=self.device)
-            seg_embed_tensor = self.segment_embedding(temp_seg_idx_tensor)
-            return seg_embed_tensor
-
-        else:
-            raise ValueError('Empty Segment Index List')
-
-    def mask_token_batch(self,
-                         sp_token_tensor,
-                         batch_data: dict,
-                         mask_rate=0.15):
-        """"""
-        batch_data_size = self.batch_size
-        mlm_para_label_list = []
-        # get mask token embedding
-
-        # ##################
-        # data_df_list = []
-        # ##################
-
-        out_data_dict = {}
-        in_mask_token = torch.clone(sp_token_tensor[:, 5, :])
-        for para_name, para_value in iter(batch_data.items()):
-            mlm_token_label_list = []
-            temp_para_value = para_value
-            # ###########################################################################
-            # data_df = pd.DataFrame(data=para_value[0, :, :].cpu().detach().numpy())
-            # ###########################################################################
-            rpl_count = 0
-            for token_idx in range(temp_para_value.shape[1]):
-                temp_org_token = temp_para_value[:, token_idx, :]
-                temp_pred_positions_and_labels = [token_idx, temp_org_token, 'None']
-                if random.random() < mask_rate:
-                    rpl_count = rpl_count + 1
-
-                    if random.random() < 0.8:
-                        # 80%的时间：将词替换为“<mask>”词元
-                        temp_mask_token = in_mask_token
-                        mask_type = 'mask'
-                    else:
-                        if random.random() < 0.5:
-                            # 10%的时间：保持词不变
-                            temp_mask_token = temp_org_token
-                            mask_type = 'org'
-                        else:
-                            # 10%的时间：用随机词替换该词
-                            temp_mask_token = random.choice(self.rnd_token)
-                            temp_mask_token = copy.deepcopy(temp_mask_token)
-                            temp_mask_token = temp_mask_token.to(self.device)
-                            temp_mask_token = temp_mask_token.unsqueeze(0)
-                            temp_mask_token = temp_mask_token.repeat(self.batch_size, 1)
-                            mask_type = 'rnd'
-
-                    # replace token in the sequence
-                    temp_para_value[:, token_idx, :] = torch.clone(temp_mask_token)
-                    temp_pred_positions_and_labels[-1] = mask_type
-
-                    # #############################################################################################
-                    # data_df.iloc[token_idx, :] = pd.Series(data=temp_mask_token[0, :].cpu().detach().numpy())
-                    # data_df = data_df.rename(index={token_idx: mask_type})
-                    # #############################################################################################
-                    # token scale label list
-                    mlm_token_label_list.append(temp_pred_positions_and_labels)
-
-            out_data_dict[para_name] = temp_para_value
-            # para scale label list
-            mlm_para_label_list.append(mlm_token_label_list)
-            
-            # #############################
-            # data_df_list.append(data_df)
-            # #############################
-        
-        # ###############################################
-        # all_data_df = pd.concat(data_df_list, axis=0)
-        # ###############################################
-        return out_data_dict, mlm_para_label_list
-
-    def token_insert_batch(self,
-                           sp_token_tensor,
-                           batch_data: dict,
-                           mlm_label=None):
-        """"""
-        # pad_token = self.get_sp_token_batch('PAD')
-        sos_token = torch.clone(sp_token_tensor[:, 1, :]).unsqueeze(1)
-        eos_token = torch.clone(sp_token_tensor[:, 2, :]).unsqueeze(1)
-        stp_token = torch.clone(sp_token_tensor[:, 3, :]).unsqueeze(1)
-        cls_token = torch.clone(sp_token_tensor[:, 4, :]).unsqueeze(1)
-        # mask_token = self.get_sp_token_batch('MASK')
-
-        # #####################################################################################
-        # sp_token_tensor = self.special_token_embedding.weight
-        # sp_token_tensor = sp_token_tensor.detach().cpu().numpy()
-        # sp_token_df = pd.DataFrame(data=sp_token_tensor,
-        #                            index=['PAD', 'SOS', 'EOS', 'STP', 'CLS', 'MASK'])
-        # #####################################################################################
-
-        curr_segment_index = [0]
-
-        # storage of segment index
-        segment_index = []
-
-        # storage of para tensor
-        sequence_list = []
-        paras_df_list = []
-
-        token_idx_list = []
-        for para_name, para_val in batch_data.items():
-            temp_segment_list = []
-            temp_para_df_list = []
-            if curr_segment_index[0] == 0:
-                temp_segment_list.append(torch.clone(cls_token))
-                temp_segment_list.append(torch.clone(sos_token))
-
-                token_idx_list.append('CLS')
-                token_idx_list.append('SOS')
-
-                # #################################################
-                # temp_para_df_list.append(sp_token_df.loc[['CLS']])
-                # temp_para_df_list.append(sp_token_df.loc[['SOS']])
-                # ###################################################
-
-            temp_segment_list.append(para_val)
-
-            tmp_size = para_val.shape
-            temp_idx_list = ['None'] * tmp_size[1]
-            if mlm_label is not None:
-                temp_para_mask_id_list = mlm_label[curr_segment_index[0]]
-                for id, _, mask_type in temp_para_mask_id_list:
-                    temp_idx_list[id] = mask_type
-            token_idx_list = token_idx_list + temp_idx_list
-
-            # #######################################################
-            # temp_para_df = para_val[0, :, :].detach().cpu().numpy()
-            # temp_para_df = pd.DataFrame(data=temp_para_df)
-            # if mlm_label is not None:
-            #     temp_para_mask_id_list = mlm_label[curr_segment_index[0]]
-            #     for id, _, mask_type in temp_para_mask_id_list:
-            #         temp_para_df = temp_para_df.rename(index={id: mask_type})
-            # temp_para_df_list.append(temp_para_df)
-            # #######################################################
-
-
-            if curr_segment_index[0] != (self.max_num_seg - 1):
-                temp_segment_list.append(torch.clone(stp_token))
-                token_idx_list.append('STP')
-
-                # #################################################
-                # temp_para_df_list.append(sp_token_df.loc[['STP']])
-                # ###################################################
-
-            else:
-                temp_segment_list.append(torch.clone(eos_token))
-                token_idx_list.append('EOS')
-                # #################################################
-                # temp_para_df_list.append(sp_token_df.loc[['EOS']])
-                # ###################################################
-
-            # concat tokens
-            temp_segment_arr = torch.cat(temp_segment_list, dim=1)
-            # append segment arr to sequence list
-            sequence_list.append(temp_segment_arr)
-
-
-            # #######################################################
-            # temp_para_with_sp_df = pd.concat(temp_para_df_list, axis=0)
-            # paras_df_list.append(temp_para_with_sp_df)
-            # #######################################################
-
-            # generate segment index
-            temp_segment_idx = curr_segment_index * temp_segment_arr.shape[1]
-            segment_index = segment_index + temp_segment_idx
-            curr_segment_index[0] = curr_segment_index[0] + 1
-
-        temp_sequence_arr = torch.cat(sequence_list, dim=1)
-        # ################################################
-        # paras_df = pd.concat(paras_df_list, axis=0)
-        # ################################################
-
-        temp_mlm_pos_gt_list = None
-        if mlm_label is not None:
-
-            # get mask token ground true
-            temp_mlm_gt_list = []
-            for ls in mlm_label:
-                for id, gt, _ in ls:
-                    temp_mlm_gt_list.append(gt)
-
-            # get mask token position
-            temp_mlm_pos_list = []
-            for i, index in enumerate(token_idx_list):
-                if index in ['mask', 'rnd', 'org']:
-                    temp_mlm_pos_list.append(i)
-
-            temp_mlm_pos_gt_list = []
-            for pos, gt in zip(temp_mlm_pos_list, temp_mlm_gt_list):
-                temp_pos_gt_tuple = (pos, gt)
-                temp_mlm_pos_gt_list.append(temp_pos_gt_tuple)
-
-        return temp_sequence_arr, segment_index, temp_mlm_pos_gt_list
+        return down_out, label, nsp_pred, rpl_label, mlm_pred, mlm_label_tensor
 
     def get_save_model(self):
         """"""

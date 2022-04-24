@@ -118,12 +118,19 @@ if __name__ == '__main__':
         'n_hid': m_model_param['n_hid'],
     }
     ###################################################################################################################
+    # set loss function
+    NPP_Loss_fn = nn.CrossEntropyLoss()
+    MTP_Loss_fn = nn.MSELoss()
+
+    m_loss_fn_list = [NPP_Loss_fn, MTP_Loss_fn]
+    ###################################################################################################################
     m_trainer = init_train_module.Model_Run(device=m_device,
                                             train_mode=m_train_mode,
                                             num_epoch=1024,
                                             data_loader=m_data_loader_dict,
                                             preprocessor=m_prepro,
                                             model=m_init_model,
+                                            loss_fn_list=m_loss_fn_list,
                                             optimizer=m_opt,
                                             scheduler=m_sch,
                                             log_dir=m_log_dir,

@@ -134,6 +134,7 @@ class Model_Run(object):
                  data_loader,
                  preprocessor,
                  model: torch.nn.Module,
+                 loss_fn_list: list[torch.nn.Module],
                  model_param: dict = None,
                  optimizer=None,
                  scheduler=None,
@@ -150,6 +151,7 @@ class Model_Run(object):
         self.data_loader = data_loader
         self.preprocessor = preprocessor
         self.model = model
+        self.loss_fn_list = loss_fn_list
         self.model_param = model_param
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -362,38 +364,56 @@ class Model_Run(object):
             self.current_lr = self.optimizer.param_groups[0]['lr']
 
         # pre-process
-        input_list = self.preprocessor.pro(data_label,
+        input_tulpe = self.preprocessor.pro(data_label,
                                            self.train_mode,
                                            self.device)
         # start model timer
         self.model_timer.start()
 
-
         # run model
-        model_loss = self.model(*input_list)
+        model_out_tulpe = self.model(*input_tulpe)
 
         # stop model timer
         self.model_timer.stop()
 
-        self.current_batch_loss = model_loss.item()
-        self.current_batch_output = None
-        if self.train_mode != 'pretrain':
-            self.current_batch_output = self.model.get_out()
-            self.current_batch_output = self.current_batch_output.detach().cpu()
+        model_loss = torch.zeros(1, dtype=torch.float32, device=self.device)
+        model_out = None
+        if self.train_mode == 'pretrain':
+            model_out, _, NSP_pred, NSP_label, MLM_pred, MLM_label = model_out_tulpe
+            NPP_Loss = torch.zeros(1, dtype=torch.float32, device=self.device)
+            MTP_Loss = torch.zeros(1, dtype=torch.float32, device=self.device)
+            NPP_Loss = self.loss_fn_list[0](NSP_pred.to(torch.float32),
+                                            NSP_label.to(torch.float32))
+            if MLM_pred is not None:
+                MTP_Loss = self.loss_fn_list[1](MLM_pred.to(torch.float32),
+                                                MLM_label.to(torch.float32))
+            model_loss =  MTP_Loss + NPP_Loss
+
+            # [loss, NPP loss, MTP loss]
+            self.epoch_pretrain_loss_accumulator.add(model_loss.item(),
+                                                     NPP_Loss.item(),
+                                                     MTP_Loss.item())
+        else:
+            self.current_batch_output = input_tulpe[0]
+            out_data = input_tulpe[0]
+            label = input_tulpe[1]
+            if len(self.loss_fn_list) == 1:
+                pass
+            else:
+                raise ValueError(f'More Than One Loss Func For {self.train_mode}.')
 
         if self.current_stage == 'Train':
-            self.optimizer.zero_grad()
-            model_loss.backward(retain_graph=True)
-            self.optimizer.step()
+            if self.current_batch_loss is not None:
+                self.optimizer.zero_grad()
+                model_loss.backward(retain_graph=True)
+                self.optimizer.step()
+
+        self.current_batch_loss = model_loss.item()
+        if model_out is not None:
+            self.current_batch_output = model_out
 
         # batch logging
         self.logging_batch()
-
-        if self.train_mode == 'pretrain':
-            #[loss, MTP loss, NPP loss]
-            self.epoch_pretrain_loss_accumulator.add(self.model.get_loss(),
-                                                     self.model.get_mtp_loss(),
-                                                     self.model.get_npp_loss())
 
         return self.current_batch_loss, self.current_batch_output
 
