@@ -483,12 +483,10 @@ class MyMultiBertModel(nn.Module):
     def get_save_model(self):
         """"""
         attr_need = ['downstream_head',
-                     'downstream_loss',
                      'batch_size',
                      'dropout',
                      'encoder_blk',
                      'mask_token_pre_head',
-                     'mask_token_pred_loss',
                      'max_num_seg',
                      'max_num_token',
                      'model_batch_loss',
@@ -497,7 +495,6 @@ class MyMultiBertModel(nn.Module):
                      'n_hid',
                      'n_layer',
                      'next_para_pre_head',
-                     'next_para_pre_loss',
                      'position_embedding',
                      'scale',
                      'segment_embedding',
