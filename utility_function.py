@@ -4,6 +4,7 @@ import sys
 import math
 import pickle
 import time
+from datetime import datetime
 from collections import Counter, OrderedDict
 
 import numpy as np
@@ -12,6 +13,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import torch
+from torchviz import make_dot
 
 
 def round_precision(x: float, precision: int = 0) -> float:
@@ -347,7 +349,7 @@ def tensor_dict_to_device(in_dict,
     """"""
     out_dict = {}
     for key, value in iter(in_dict.items()):
-        out_dict[key] = value.to(device)
+        out_dict[key] = torch.clone(value).to(device)
 
     return out_dict
 
@@ -514,6 +516,18 @@ class Tokenizer():
         re_data = arr_token
         return re_data
 
+
+def trace_tensor_pdf(target_tensor,
+                     target_model,
+                     var_name = 'None',
+                     save_file_name: str = None):
+    tmp_graph = make_dot(target_tensor,
+                         params=dict(target_model.named_parameters()),
+                         show_attrs=True,
+                         show_saved=True)
+    current_data_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+    tmp_save_name = f'{current_data_time}_{save_file_name}_{var_name}'
+    tmp_graph.render(filename=tmp_save_name, view=False)
 
 if __name__ == '__main__':
     pass

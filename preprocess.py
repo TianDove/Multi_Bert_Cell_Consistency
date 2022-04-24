@@ -4,6 +4,7 @@
 import copy
 import random
 import torch
+import torch.nn.functional as F
 import utility_function
 import model_define
 
@@ -78,33 +79,41 @@ class MyMultiBertModelProcessing(object):
             self.batch_size = train_data['label'].shape[0]
             self.batch_size_flag = True
 
+        temp_label_one_hot = None
+        temp_label_tensor = torch.clone(train_data['label'])
+        temp_label_long_tensor = temp_label_tensor.to(torch.long)
+        temp_label_long_tensor_device = temp_label_long_tensor.to(device)
+        temp_label_one_hot = F.one_hot(temp_label_long_tensor_device, self.num_classes)
 
-        temp_label_arr = copy.deepcopy(train_data['label'])
-        temp_label_arr = cls_label_to_one_hot(temp_label_arr,
-                                              num_classes=self.num_classes)
-        temp_label_arr = temp_label_arr.to(device)
         # delete label
         del train_data['label']
-
-
-        rpl_label = None
+        rpl_label_onehot_tensor_device = []
         temp_data_dict = train_data
         if train_mode == 'pretrain':
-            temp_data_dict, rpl_label = self.next_para_replace(temp_data_dict)
-            rpl_label = rpl_label.to(device)
+            temp_data_dict, rpl_label_tensor = self.next_para_replace(temp_data_dict)
+            rpl_label_onehot_tensor = F.one_hot(rpl_label_tensor, 2)
+            rpl_label_onehot_tensor_cp = torch.clone(rpl_label_onehot_tensor)
+            rpl_label_onehot_tensor_device = rpl_label_onehot_tensor_cp.to(device)
 
-        temp_data_dict = self.tokenize_dict(temp_data_dict)
-        temp_data_dict = utility_function.tensor_dict_to_device(temp_data_dict, device)
+        temp_data_token_dict = self.tokenize_dict(temp_data_dict)
 
-        return [temp_data_dict, temp_label_arr, rpl_label, train_mode]
+        temp_out_data_dict = None
+        temp_out_data_dict = utility_function.tensor_dict_to_device(temp_data_token_dict, device)
+
+        return (temp_out_data_dict, temp_label_one_hot, rpl_label_onehot_tensor_device, train_mode)
 
 
     def next_para_replace(self,
                           batch_data: dict,
                           rpl_rate: float = 0.5):
         """"""
-        para_type = list(batch_data.keys())
-        batch_size = batch_data[para_type[0]].shape[0]
+
+        tmp_out_tensor_dict = {}
+        for key, val in batch_data.items():
+            tmp_out_tensor_dict[key] = torch.clone(val)
+
+        para_type = list(tmp_out_tensor_dict.keys())
+        batch_size = tmp_out_tensor_dict[para_type[0]].shape[0]
 
         # dont replace first para
         para_type.remove(para_type[0])
@@ -121,21 +130,22 @@ class MyMultiBertModelProcessing(object):
             # get para to replace
             rlp_key = random.choice(para_type_bak)
             rnd_choice_data = random.choice(self.rnd_para_dict[rlp_key])
-            if len(rnd_choice_data.shape) < 2:
-                rnd_choice_data = rnd_choice_data.reshape(1, -1)  # (Batch_size, Data_size)
-            rnd_para_data = rnd_choice_data.repeat(batch_size, 1)
-            batch_data[gt_key] = rnd_para_data
-            replace_abel = [1, 0]  # not next
+            rnd_choice_data_cp = torch.clone(rnd_choice_data)
+
+            rnd_choice_data_uq = rnd_choice_data_cp.unsqueeze(0)  # (Batch_size, Data_size)
+            rnd_para_data_rep = rnd_choice_data_uq.repeat(batch_size, 1)
+            tmp_out_tensor_dict[gt_key] = rnd_para_data_rep
+            replace_abel = torch.zeros(batch_size, dtype=torch.long)   # not next
         else:
             rlp_key = gt_key
-            replace_abel = [0, 1]  # next
+            replace_abel = torch.ones(batch_size, dtype=torch.long)  # next
 
         #label one-hot
-        replace_abel = torch.tensor(replace_abel, dtype=torch.float32).reshape(1, -1).repeat(batch_size, 1)
+        replace_abel_tensor = torch.clone(replace_abel)
 
         # visualize
         (gt_key, rlp_key)
-        return batch_data, replace_abel
+        return tmp_out_tensor_dict, replace_abel_tensor
 
     def tokenize_dict(self,
                  batch_data: dict) -> dict:
@@ -145,7 +155,7 @@ class MyMultiBertModelProcessing(object):
         temp_token_dict = {}
         for key, val in batch_data.items():
             temp_tokens = self.tokenize_tensor(val)
-            temp_token_dict[key] = temp_tokens
+            temp_token_dict[key] = torch.clone(temp_tokens)
 
         return temp_token_dict
 

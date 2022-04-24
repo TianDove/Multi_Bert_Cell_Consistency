@@ -123,7 +123,8 @@ class CovTokenEmbedding(nn.Module):
         # token embedding
         token_embedding_list = []
         for token_idx in range(in_data.shape[1]):
-            temp_token_embedding = self.cov_blk(in_data[:, token_idx, :].unsqueeze(1))
+            temp_in_token = torch.clone(in_data[:, token_idx, :]).unsqueeze(1)
+            temp_token_embedding = self.cov_blk(temp_in_token)
             token_embedding_list.append(temp_token_embedding)
         out_data = torch.cat(token_embedding_list, dim=1)
         return out_data
@@ -164,6 +165,7 @@ class MyMultiBertModel(nn.Module):
         self.MTP_batch_loss = None
         self.num_token = None
         self.batch_size = None
+        self.mask_rate = 0.15
 
         # model layer and operation
         # Special token embedding
@@ -203,13 +205,13 @@ class MyMultiBertModel(nn.Module):
         self.mask_token_pre_head = MaskTokenPred(in_len=self.token_len,
                                                  embedding_token_dim=embedding_dim,
                                                  dropout=dropout)
-        self.mask_token_pred_loss = nn.MSELoss()
+        # self.mask_token_pred_loss = nn.MSELoss()
 
         # Next Parameter Prediction Head
         self.next_para_pre_head =  NextParaPred(embedding_token_dim=embedding_dim,
                                                 dropout=dropout)
 
-        self.next_para_pre_loss = nn.CrossEntropyLoss()
+        # self.next_para_pre_loss = nn.CrossEntropyLoss()
 
         # DownStream Head
         self.downstream_head = MyDownStreamHead(num_class=8,
@@ -217,7 +219,7 @@ class MyMultiBertModel(nn.Module):
                                                 embedding_token_dim=embedding_dim,
                                                 dropout=dropout)
 
-        self.downstream_loss = nn.CrossEntropyLoss()
+        # self.downstream_loss = nn.CrossEntropyLoss()
 
     def forward(self,
                 inputs: dict,
@@ -227,89 +229,254 @@ class MyMultiBertModel(nn.Module):
                 model_dict=None,
                 opt=None):
         """"""
-        with torch.autograd.set_detect_anomaly(True):
-            # with torch.autograd.set_detect_anomaly(True):
-            inter_res = inputs
-            mlm_label = None
-            self.get_batch_size(inter_res)
 
-            # special token tensor
-            temp_sp_idx_tensor = torch.tensor([0, 1, 2, 3, 4, 5],
-                                              dtype=torch.long,
-                                              device=self.device)
-            sp_token_tensor = self.special_token_embedding(temp_sp_idx_tensor)
-            sp_token_tensor = sp_token_tensor.unsqueeze(0)
-            sp_token_tensor = sp_token_tensor.repeat(self.batch_size, 1, 1)
+        inter_res = inputs
+        self.get_batch_size(inter_res)
 
-            if train_mode == 'pretrain':
-                inter_res, mlm_label = self.mask_token_batch(sp_token_tensor, inter_res)
+        # special token tensor
+        temp_sp_idx_tensor = torch.tensor([0, 1, 2, 3, 4, 5],
+                                          dtype=torch.long,
+                                          device=self.device)
+        sp_token_tensor = self.special_token_embedding(temp_sp_idx_tensor)
+        sp_token_tensor_cp = torch.clone(sp_token_tensor)
+        sp_token_tensor_usq = sp_token_tensor_cp.unsqueeze(0)
+        sp_token_tensor_rep = sp_token_tensor_usq.repeat(self.batch_size, 1, 1)
 
-            inter_res, segment_index, mlm_label = self.token_insert_batch(sp_token_tensor, inter_res, mlm_label)
-            inter_res = self.token_embedding(inter_res)
+        mlm_para_label_list = []
+        if train_mode == 'pretrain':
+            # Mask Token Start
+            mlm_para_label_list = []
+            # get mask token embedding
 
-            # get segments embedding
-            temp_seg_idx_tensor = torch.tensor(segment_index,
-                                               dtype=torch.long,
-                                               device=self.device)
-            segments_embedding = self.segment_embedding(temp_seg_idx_tensor)
+            # ##################
+            # data_df_list = []
+            # ##################
 
-            seg_pos_embedding = segments_embedding + self.position_embedding[:, 0:len(segment_index), :]
+            out_mask_data_dict = {}
+            in_mask_token = torch.clone(sp_token_tensor_rep[:, 5, :])
+            for para_name, para_value in iter(inter_res.items()):
+                mlm_token_label_list = []
+                temp_para_value = para_value
+                # ###########################################################################
+                # data_df = pd.DataFrame(data=para_value[0, :, :].cpu().detach().numpy())
+                # ###########################################################################
+                rpl_count = 0
+                for token_idx in range(temp_para_value.shape[1]):
+                    temp_org_token = temp_para_value[:, token_idx, :]
+                    temp_pred_positions_and_labels = [token_idx, temp_org_token, 'None']
+                    if random.random() < self.mask_rate:
+                        rpl_count = rpl_count + 1
 
-            seg_pos_embedding = seg_pos_embedding.repeat(self.batch_size, 1, 1)
+                        if random.random() < 0.8:
+                            # 80%的时间：将词替换为“<mask>”词元
+                            temp_mask_token = in_mask_token
+                            mask_type = 'mask'
+                        else:
+                            if random.random() < 0.5:
+                                # 10%的时间：保持词不变
+                                temp_mask_token = temp_org_token
+                                mask_type = 'org'
+                            else:
+                                # 10%的时间：用随机词替换该词
+                                temp_mask_token = random.choice(self.rnd_token)
+                                temp_mask_token = torch.clone(temp_mask_token)
+                                temp_mask_token = temp_mask_token.to(self.device)
+                                temp_mask_token = temp_mask_token.unsqueeze(0)
+                                temp_mask_token = temp_mask_token.repeat(self.batch_size, 1)
+                                mask_type = 'rnd'
 
-            # add position embedding and segment embedding to the data
-            inter_res = inter_res + (self.scale * seg_pos_embedding)
+                        # replace token in the sequence
+                        temp_para_value[:, token_idx, :] = torch.clone(temp_mask_token)
+                        temp_pred_positions_and_labels[-1] = mask_type
 
-            # encoder input B * L * EB
-            encoder_out = self.encoder_blk(inter_res)
+                        # #############################################################################################
+                        # data_df.iloc[token_idx, :] = pd.Series(data=temp_mask_token[0, :].cpu().detach().numpy())
+                        # data_df = data_df.rename(index={token_idx: mask_type})
+                        # #############################################################################################
+                        # token scale label list
+                        mlm_token_label_list.append(temp_pred_positions_and_labels)
 
+                out_mask_data_dict[para_name] = torch.clone(temp_para_value)
+                # para scale label list
+                mlm_para_label_list.append(mlm_token_label_list)
 
-            if train_mode == 'pretrain':
-                mlm_pred = None
-                if mlm_label != []:
-                    temp_token_for_pred = []
-                    for idx in mlm_label:
-                        pos = idx[0]
-                        temp_token = encoder_out[:, pos, :].unsqueeze(1)
-                        temp_token_for_pred.append(temp_token)
-                    temp_token_for_pred = torch.cat(temp_token_for_pred, dim=1)
+                # #############################
+                # data_df_list.append(data_df)
+                # #############################
 
-                    mlm_pred = self.mask_token_pre_head(temp_token_for_pred)
+            # ###############################################
+            # all_data_df = pd.concat(data_df_list, axis=0)
+            # ###############################################
+            # Mask Token End
 
-                    # cat label
-                    mlm_label_gt_list = []
-                    for id, gt in mlm_label:
-                        temp_gt = gt.unsqueeze(1)
-                        mlm_label_gt_list.append(temp_gt)
-                    mlm_label_tensor = torch.cat(mlm_label_gt_list, dim=1)
+        # Special Token Insert Start
+        # pad_token = self.get_sp_token_batch('PAD')
+        sos_token = torch.clone(sp_token_tensor_rep[:, 1, :]).unsqueeze(1)
+        eos_token = torch.clone(sp_token_tensor_rep[:, 2, :]).unsqueeze(1)
+        stp_token = torch.clone(sp_token_tensor_rep[:, 3, :]).unsqueeze(1)
+        cls_token = torch.clone(sp_token_tensor_rep[:, 4, :]).unsqueeze(1)
+        # mask_token = self.get_sp_token_batch('MASK')
 
-                    self.MTP_batch_loss = self.mask_token_pred_loss(mlm_pred, mlm_label_tensor)
+        # #####################################################################################
+        # sp_token_tensor = self.special_token_embedding.weight
+        # sp_token_tensor = sp_token_tensor.detach().cpu().numpy()
+        # sp_token_df = pd.DataFrame(data=sp_token_tensor,
+        #                            index=['PAD', 'SOS', 'EOS', 'STP', 'CLS', 'MASK'])
+        # #####################################################################################
 
-                # get 'CLS' token in batch
-                if rpl_label is None:
-                    raise ValueError('Error:Replace Parameter Label is None, When in Pre-Train Mode.')
+        curr_segment_index = [0]
 
-                batch_cls_token = encoder_out[:, 0, :]
-                nsp_pred = self.next_para_pre_head(batch_cls_token)
-                self.NPP_batch_loss = self.next_para_pre_loss(nsp_pred, rpl_label)
+        # storage of segment index
+        segment_index = []
 
-                if self.MTP_batch_loss is None:
-                    self.MTP_batch_loss = 0.0
-                    self.model_batch_loss = self.NPP_batch_loss
-                else:
-                    self.model_batch_loss = self.MTP_batch_loss + self.NPP_batch_loss
+        # storage of para tensor
+        sequence_list = []
+        paras_df_list = []
+
+        token_idx_list = []
+        for para_name, para_val in inter_res.items():
+            temp_segment_list = []
+            temp_para_df_list = []
+            if curr_segment_index[0] == 0:
+                temp_segment_list.append(torch.clone(cls_token))
+                temp_segment_list.append(torch.clone(sos_token))
+
+                token_idx_list.append('CLS')
+                token_idx_list.append('SOS')
+
+                # #################################################
+                # temp_para_df_list.append(sp_token_df.loc[['CLS']])
+                # temp_para_df_list.append(sp_token_df.loc[['SOS']])
+                # ###################################################
+
+            temp_segment_list.append(torch.clone(para_val))
+
+            tmp_size = para_val.shape
+            temp_idx_list = ['None'] * tmp_size[1]
+            if mlm_para_label_list:
+                temp_para_mask_id_list = mlm_para_label_list[curr_segment_index[0]]
+                for id, _, mask_type in temp_para_mask_id_list:
+                    temp_idx_list[id] = mask_type
+            token_idx_list = token_idx_list + temp_idx_list
+
+            # #######################################################
+            # temp_para_df = para_val[0, :, :].detach().cpu().numpy()
+            # temp_para_df = pd.DataFrame(data=temp_para_df)
+            # if mlm_label is not None:
+            #     temp_para_mask_id_list = mlm_label[curr_segment_index[0]]
+            #     for id, _, mask_type in temp_para_mask_id_list:
+            #         temp_para_df = temp_para_df.rename(index={id: mask_type})
+            # temp_para_df_list.append(temp_para_df)
+            # #######################################################
+
+            if curr_segment_index[0] != (self.max_num_seg - 1):
+                temp_segment_list.append(torch.clone(stp_token))
+                token_idx_list.append('STP')
+
+                # #################################################
+                # temp_para_df_list.append(sp_token_df.loc[['STP']])
+                # ###################################################
 
             else:
-                self.model_batch_out = self.downstream_head(encoder_out)
-                self.model_batch_loss = self.downstream_loss(self.model_batch_out, label)
+                temp_segment_list.append(torch.clone(eos_token))
+                token_idx_list.append('EOS')
+                # #################################################
+                # temp_para_df_list.append(sp_token_df.loc[['EOS']])
+                # ###################################################
 
+            # concat tokens
+            temp_segment_arr = torch.cat(temp_segment_list, dim=1)
+            # append segment arr to sequence list
+            sequence_list.append(temp_segment_arr)
 
-            if opt is not None:
-                opt.zero_grad()
-                self.model_batch_loss.backward(retain_graph=True)
-                opt.step()
+            # #######################################################
+            # temp_para_with_sp_df = pd.concat(temp_para_df_list, axis=0)
+            # paras_df_list.append(temp_para_with_sp_df)
+            # #######################################################
 
-        return self.model_batch_loss
+            # generate segment index
+            temp_segment_idx = curr_segment_index * temp_segment_arr.shape[1]
+            segment_index = segment_index + temp_segment_idx
+            curr_segment_index[0] = curr_segment_index[0] + 1
+
+        temp_sequence_arr = torch.cat(sequence_list, dim=1)
+        # ################################################
+        # paras_df = pd.concat(paras_df_list, axis=0)
+        # ################################################
+
+        temp_mlm_pos_gt_list = None
+        if mlm_para_label_list:
+
+            # get mask token ground true
+            temp_mlm_gt_list = []
+            for ls in mlm_para_label_list:
+                for id, gt, _ in ls:
+                    temp_mlm_gt_list.append(gt)
+
+            # get mask token position
+            temp_mlm_pos_list = []
+            for i, index in enumerate(token_idx_list):
+                if index in ['mask', 'rnd', 'org']:
+                    temp_mlm_pos_list.append(i)
+
+            temp_mlm_pos_gt_list = []
+            for pos, gt in zip(temp_mlm_pos_list, temp_mlm_gt_list):
+                temp_pos_gt_tuple = (pos, gt)
+                temp_mlm_pos_gt_list.append(temp_pos_gt_tuple)
+        # Special Token Insert End
+
+        inter_res = self.token_embedding(temp_sequence_arr)
+
+        # get segments embedding
+        temp_seg_idx_tensor = torch.tensor(segment_index,
+                                           dtype=torch.long,
+                                           device=self.device)
+        segments_embedding = self.segment_embedding(temp_seg_idx_tensor)
+
+        seg_pos_embedding = segments_embedding + self.position_embedding[:, 0:len(segment_index), :]
+
+        seg_pos_embedding = seg_pos_embedding.repeat(self.batch_size, 1, 1)
+
+        # add position embedding and segment embedding to the data
+        inter_res = inter_res + (self.scale * seg_pos_embedding)
+
+        # encoder input B * L * EB
+        encoder_out = self.encoder_blk(inter_res)
+
+        mlm_pred = None
+        nsp_pred = None
+        mlm_label_tensor = None
+        if train_mode == 'pretrain':
+            if temp_mlm_pos_gt_list:
+                temp_token_label_list = []
+                for idx in temp_mlm_pos_gt_list:
+                    pos = idx[0]
+                    temp_token = torch.clone(encoder_out[:, pos, :]).unsqueeze(1)
+                    temp_token_label_list.append(temp_token)
+                temp_token_for_pred = torch.cat(temp_token_label_list, dim=1)
+
+                mlm_pred = self.mask_token_pre_head(temp_token_for_pred)
+
+                # cat label
+                mlm_label_gt_list = []
+                for id, gt in temp_mlm_pos_gt_list:
+                    temp_gt = gt.unsqueeze(1)
+                    mlm_label_gt_list.append(temp_gt)
+                mlm_label_tensor = torch.cat(mlm_label_gt_list, dim=1)
+
+            # get 'CLS' token in batch
+            if rpl_label is None:
+                raise ValueError('Error:Replace Parameter Label is None, When in Pre-Train Mode.')
+
+            batch_cls_token = torch.clone(encoder_out[:, 0, :])
+            nsp_pred = self.next_para_pre_head(batch_cls_token)
+
+        # if opt is not None:
+        #     opt.zero_grad()
+        #     self.model_batch_loss.backward(retain_graph=True)
+        #     opt.step()
+
+        return mlm_pred, nsp_pred, mlm_label_tensor, rpl_label
 
     def get_segment_embedding(self, segment_index: list):
         """"""
@@ -726,6 +893,10 @@ if __name__ == '__main__':
         'n_hid': m_model_param['n_hid'],
     }
 
+    # loss define
+    MTP_Loss_fn = nn.MSELoss()
+    NPP_Loss_fn = nn.CrossEntropyLoss()
+
     add_graph_flag = False
     with SummaryWriter(log_dir=m_log_dir) as writer:
         for epoch_idx in range(32):
@@ -734,16 +905,29 @@ if __name__ == '__main__':
             for batch_idx, data_label in enumerate(m_data_loader_dict[m_train_mode]):
                 with torch.autograd.set_detect_anomaly(True):
                     # pre-process
-                    input_list = m_prepro.pro(data_label,
-                                              m_train_mode,
-                                              m_device)
+                    input_tulpe = m_prepro.pro(data_label,
+                                               m_train_mode,
+                                               m_device)
 
                     # if not add_graph_flag:
                     #     writer.add_graph(m_init_model,
                     #                      [])
                     #     add_graph_flag = True
 
-                    model_loss = m_init_model(*input_list, opt=m_opt)
+                    output_tulpe = m_init_model(*input_tulpe)
+
+                    MTP_Loss = torch.zeros(1, dtype=torch.float32, device=m_device)
+                    NPP_Loss = torch.zeros(1, dtype=torch.float32, device=m_device)
+
+                    MTP_Loss = MTP_Loss_fn(output_tulpe[0].to(torch.float32), output_tulpe[2].to(torch.float32))
+                    NPP_Loss = NPP_Loss_fn(output_tulpe[1].to(torch.float32), output_tulpe[3].to(torch.float32))
+
+                    Total_Loss = MTP_Loss + NPP_Loss
+
+                    m_opt.zero_grad()
+                    Total_Loss.backward(retain_graph=True)
+                    m_opt.step()
+
 
                     # g = make_dot(model_loss,
                     #              params=dict(m_init_model.named_parameters()),
