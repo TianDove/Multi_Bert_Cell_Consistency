@@ -4,9 +4,12 @@
 import os
 from datetime import datetime
 
+import numpy as np
 import torch
+import copy
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
+import sklearn.metrics as skm
 
 import optim_sche
 import utility_function
@@ -130,11 +133,11 @@ class Model_Run(object):
     def __init__(self,
                  device: torch.device,
                  train_mode: str,
-                 num_epoch: int,
                  data_loader,
                  preprocessor,
-                 model: torch.nn.Module,
-                 loss_fn_list: list[torch.nn.Module],
+                 num_epoch: int = 1,
+                 model: torch.nn.Module = None,
+                 loss_fn_list: list[torch.nn.Module] = None,
                  model_param: dict = None,
                  optimizer=None,
                  scheduler=None,
@@ -142,7 +145,9 @@ class Model_Run(object):
                  scheduler_param: dict = None,
                  log_dir='.\\',
                  model_dir: str = None,
-                 hyper_param: dict = None):
+                 hyper_param: dict = None,
+                 num_class: int = None,
+                 model_name: str = None):
         """"""
         # store input
         self.device = device
@@ -160,6 +165,8 @@ class Model_Run(object):
         self.log_dir = log_dir
         self.model_dir = model_dir
         self.hyper_param = hyper_param
+        self.num_class = num_class
+        self.model_name = model_name
 
         # state var
         self.start_data_time = None
@@ -169,10 +176,13 @@ class Model_Run(object):
         self.current_epoch_idx = None
         self.current_batch_idx = None
         self.current_model_idx = None
+        self.current_model_epoch_idx = None
         self.current_set_num_batch = None
         self.current_batch_size = None
         self.current_lr = None
-        self.current_num_model = None
+        self.num_model_idx = None
+        self.num_model_epoch = None
+        self.current_model_list = None
         self.current_model_file_list = None
         self.current_model_dict = None
         self.current_data_loader = None
@@ -184,10 +194,12 @@ class Model_Run(object):
         self.current_batch_train_loss = None
         self.current_batch_test_loss = None
         self.current_batch_loss = None
+        self.current_epoch_eval_dict = None
+        self.train_epoch_eval_dict = None
+        self.test_epoch_eval_dict = None
 
         # output record
-        self.current_epoch_train_output = None
-        self.current_epoch_test_output = None
+        self.current_epoch_output_label_list = None
         self.current_batch_train_output = None
         self.current_batch_test_output = None
         self.current_batch_output = None
@@ -207,38 +219,71 @@ class Model_Run(object):
         # record train start data time
         self.start_data_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         # record current model name
-        self.current_model_name = self.model.model_name
+        if self.model_name:
+            self.current_model_name = self.model_name
+        elif self.model:
+            if self.model.model_name:
+                self.current_model_name = self.model.model_name
+            else:
+                raise ValueError('Model Name Do Not Exist.')
+        else:
+            raise ValueError('No Model or Model Name.')
 
         # init tensorboard writer
         self.current_log_dir = os.path.join(self.log_dir,
                                             f'{self.current_model_name}_{self.start_data_time}')
         with SummaryWriter(log_dir=self.current_log_dir) as self.current_writer:
-            if self.train_mode in ['pretrain', 'train', 'test']:
-                self.current_model_idx = 0
+            if self.train_mode in ['pretrain', 'train']:
+                self.current_model_epoch_idx = 0
+                self.num_model_epoch = 1
                 self.epoch_iter()
             elif self.train_mode == 'finetune':
                 self.model_iter()
+            elif self.train_mode == 'test':
+                self.model_iter()
             else:
                 raise ValueError('Train Mode Error')
+
 
     def model_iter(self):
         """"""
 
         self.finetune_init()
 
-        for self.current_model_idx, file_name in enumerate(self.current_model_file_list):
-            load_model_path = os.path.join(self.model_dir, file_name)
-            self.current_model_dict = self.load_model(load_model_path)['model']
-            temp_model = self.model.cpu()
-            temp_model.set_model_attr(self.current_model_dict)
-            self.model = temp_model.to(self.device)
+        for self.current_model_idx, model_idx in enumerate(self.current_model_list):
+            temp_model_path = os.path.join(self.model_dir, model_idx)
+            self.current_model_file_list = os.listdir(temp_model_path)
+            self.num_model_epoch = len(self.current_model_file_list)
+            for self.current_model_epoch_idx, file_name in enumerate(self.current_model_file_list):
+                load_model_path = os.path.join(temp_model_path, file_name)
+                temp_load_dict = self.load_model(load_model_path)
+                self.current_model_dict = temp_load_dict['model']
 
-            # init new optimizer and scheduler
-            self.optimizer, self.scheduler = init_optimaizer_scheduler(self.model,
-                                                                       self.optimizer_param,
-                                                                       self.scheduler_param)
+                self.hyper_param = None
+                if 'hyper_param' in temp_load_dict.keys():
+                    self.hyper_param = temp_load_dict['hyper_param']
 
-            self.epoch_iter()
+                temp_model = self.model.cpu()
+                temp_model.set_model_attr(self.current_model_dict)
+
+                # init model
+                self.model = None
+                self.model = temp_model.to(self.device)
+
+                if self.train_mode == 'finetune':
+                    # init new optimizer and scheduler
+                    self.optimizer = None
+                    self.scheduler = None
+                    self.optimizer, self.scheduler = init_optimaizer_scheduler(self.model,
+                                                                               self.optimizer_param,
+                                                                               self.scheduler_param)
+
+                self.model_timer = utility_function.Timer()
+                self.model_timer.start()
+
+                self.epoch_iter()
+
+                self.model_timer.stop()
 
     def epoch_iter(self):
         """"""
@@ -249,8 +294,6 @@ class Model_Run(object):
 
         # init epoch timer
         self.epoch_timer = utility_function.Timer()
-        if self.train_mode == 'test':
-            self.num_epoch = 1
 
         for self.current_epoch_idx in range(self.num_epoch):
             # start epoch timer
@@ -273,6 +316,7 @@ class Model_Run(object):
             self.logging_epoch()
             # write tensorboard
             self.write_res()
+
             if self.train_mode != 'test':
                 # step scheduler
                 self.scheduler.step()
@@ -286,6 +330,10 @@ class Model_Run(object):
         self.batch_test_timer = utility_function.Timer()
         self.model_timer = utility_function.Timer()
         self.epoch_loss_accumulator = utility_function.Accumulator(1)
+        self.current_epoch_output_label_list = []
+        self.current_epoch_eval_dict = {}
+        self.test_epoch_eval_dict = {}
+
         self.current_stage = 'Test'
 
         # set model to eval mode
@@ -309,10 +357,17 @@ class Model_Run(object):
                 self.current_batch_test_loss, self.current_batch_test_output = self.batch_iter(data_label)
 
                 # add batch test loss
-                self.epoch_loss_accumulator.add(self.current_batch_train_loss)
+                self.epoch_loss_accumulator.add(self.current_batch_test_loss)
 
                 # stop batch test timer
                 self.batch_test_timer.stop()
+
+        # calculate epoch eval
+        if self.train_mode != 'pretrain':
+            self.current_epoch_eval_dict = self.cal_accuracy(self.current_epoch_output_label_list)
+            for key, val in self.current_epoch_eval_dict.items():
+                tmp_key = 'test_' + key
+                self.test_epoch_eval_dict[tmp_key] = copy.deepcopy(val)
 
         return self.epoch_loss_accumulator.data[-1] / self.current_set_num_batch
 
@@ -322,6 +377,9 @@ class Model_Run(object):
         self.batch_train_timer = utility_function.Timer()
         self.model_timer = utility_function.Timer()
         self.epoch_loss_accumulator = utility_function.Accumulator(1)
+        self.current_epoch_output_label_list = []
+        self.current_epoch_eval_dict = {}
+        self.train_epoch_eval_dict = {}
 
         if self.train_mode == 'pretrain':
             self.epoch_pretrain_loss_accumulator = utility_function.Accumulator(3)
@@ -350,6 +408,13 @@ class Model_Run(object):
 
             # stop batch train timer
             self.batch_train_timer.stop()
+
+        # calculate epoch eval
+        if self.train_mode != 'pretrain':
+            self.current_epoch_eval_dict = self.cal_accuracy(self.current_epoch_output_label_list)
+            for key, val in self.current_epoch_eval_dict.items():
+                tmp_key = 'train_' + key
+                self.train_epoch_eval_dict[tmp_key] = copy.deepcopy(val)
 
         return self.epoch_loss_accumulator.data[-1] / self.current_set_num_batch
 
@@ -394,13 +459,16 @@ class Model_Run(object):
                                                      NPP_Loss.item(),
                                                      MTP_Loss.item())
         else:
-            self.current_batch_output = input_tulpe[0]
-            out_data = input_tulpe[0]
-            label = input_tulpe[1]
-            if len(self.loss_fn_list) == 1:
-                pass
-            else:
-                raise ValueError(f'More Than One Loss Func For {self.train_mode}.')
+            model_out = model_out_tulpe[0]
+            out_data = model_out_tulpe[0]
+            label = model_out_tulpe[1]
+            if self.train_mode != 'test':
+                if len(self.loss_fn_list) != 1:
+                    raise ValueError(f'More Than One Loss Func For {self.train_mode}.')
+                model_loss = self.loss_fn_list[0](out_data.to(torch.float32),
+                                                  label.to(torch.float32))
+
+            self.current_epoch_output_label_list.append((model_out, label))
 
         if self.current_stage == 'Train':
             if self.current_batch_loss is not None:
@@ -416,6 +484,69 @@ class Model_Run(object):
         self.logging_batch()
 
         return self.current_batch_loss, self.current_batch_output
+
+    def cal_accuracy(self, out_label_list):
+        """"""
+        tmp_out_list = []
+        tmp_label_list = []
+
+        if not out_label_list:
+            raise ValueError('Output and Label List is Empty.')
+
+        for o, l in out_label_list:
+            tmp_out_list.append(o)
+            tmp_label_list.append(l)
+
+        tmp_out = torch.cat(tmp_out_list)
+        tmp_label = torch.cat(tmp_label_list)
+
+
+        tmp_out_onehot_arr = tmp_out.detach().cpu().numpy()
+        tmp_out_arr = torch.argmax(tmp_out, dim=1).detach().cpu().numpy()
+
+        tmp_label_onehot_arr = tmp_label.detach().cpu().numpy()
+        tmp_label_arr = torch.argmax(tmp_label, dim=1).detach().cpu().numpy()
+
+        label_list = [x for x in range(self.num_class)]
+        label_arr = np.array(label_list)
+
+        top_1_acc = skm.top_k_accuracy_score(tmp_label_arr, tmp_out_onehot_arr, k=1, labels=label_arr)
+        top_3_acc = skm.top_k_accuracy_score(tmp_label_arr, tmp_out_onehot_arr, k=3, labels=label_arr)
+
+        f1_mac_score = skm.f1_score(tmp_label_arr, tmp_out_arr, labels=label_arr, average='macro')
+        f1_mic_score = skm.f1_score(tmp_label_arr, tmp_out_arr, labels=label_arr, average='micro')
+
+        precision_mac = skm.precision_score(tmp_label_arr, tmp_out_arr, labels=label_arr, average='macro')
+        precision_mic = skm.precision_score(tmp_label_arr, tmp_out_arr, labels=label_arr, average='micro')
+
+        recall_mac = skm.recall_score(tmp_label_arr, tmp_out_arr, labels=label_arr, average='macro')
+        recall_mic = skm.recall_score(tmp_label_arr, tmp_out_arr, labels=label_arr, average='micro')
+
+        roc_auc_mac = skm.roc_auc_score(tmp_label_onehot_arr,
+                                        tmp_out_onehot_arr,
+                                        average='macro',
+                                        multi_class='ovr',
+                                        labels=label_arr)
+        roc_auc_mic = skm.roc_auc_score(tmp_label_onehot_arr,
+                                        tmp_out_onehot_arr,
+                                        average='micro',
+                                        multi_class='ovr',
+                                        labels=label_arr)
+
+        tmp_eval_dict = {
+            'top_1_acc': top_1_acc,
+            'top_3_acc': top_3_acc,
+            'f1_mac_score': f1_mac_score,
+            'f1_mic_score': f1_mic_score,
+            'precision_mac': precision_mac,
+            'precision_mic': precision_mic,
+            'recall_mac': recall_mac,
+            'recall_mic': recall_mic,
+            'roc_auc_mac':roc_auc_mac,
+            'roc_auc_mic': roc_auc_mic
+        }
+
+        return tmp_eval_dict
 
     def logging_batch(self, print_flag: bool = True):
         """"""
@@ -447,14 +578,29 @@ class Model_Run(object):
         if self.train_mode == 'pretrain':
             str_data = '| Mode: {:s} | Epoch: {:3d}/{:3d} ' \
                        '| Lr: {:10.9f} | Epoch Loss: {:8.7f} | Epoch Time: {:5.2f} ms/batch |'.format(
-                self.current_stage,
+                self.train_mode,
                 self.current_epoch_idx + 1, self.num_epoch,
                 self.current_lr,
                 self.epoch_loss_accumulator.data[-1] / self.current_set_num_batch,
                 self.epoch_timer.times[-1] * 1000
             )
-        elif self.train_mode in ['train', 'finetune']:
-            pass
+        elif self.train_mode in ['finetune',]:
+            str_data = '| Mode: {:s} | Models: {:3d}/{:3d} | Epoch: {:3d}/{:3d} ' \
+                       '| Epoch Loss: {:8.7f} | Epoch Time: {:5.2f} ms/batch |'.format(
+                self.train_mode,
+                self.current_model_epoch_idx + 1, self.num_model_epoch,
+                self.current_epoch_idx + 1, self.num_epoch,
+                self.epoch_loss_accumulator.data[-1] / self.current_set_num_batch,
+                self.epoch_timer.times[-1] * 1000
+            )
+        elif self.train_mode in ['test', ]:
+            str_data = '| Mode: {:s} | Models: {:3d}/{:3d} | Epoch: {:3d}/{:3d} ' \
+                       '| Epoch Time: {:5.2f} ms/batch |'.format(
+                self.train_mode,
+                self.current_model_idx + 1,self.num_model_idx,
+                self.current_model_epoch_idx + 1, self.num_model_epoch,
+                self.epoch_timer.times[-1] * 1000
+            )
         else:
             pass
 
@@ -464,10 +610,15 @@ class Model_Run(object):
             print(separator)
 
         if write_flag:
-            write_file_name = f'{self.start_data_time}_' \
+            write_file_name = f'{self.train_mode}_' \
+                              f'{self.start_data_time}_' \
                               f'{self.current_model_name}_' \
-                              f'{self.current_model_idx}_' \
-                              f'{self.current_epoch_idx}_.txt'
+                              f'{self.current_model_epoch_idx}.txt'
+            if self.train_mode in ['test', ]:
+                write_file_name = f'{self.train_mode}_' \
+                                  f'{self.start_data_time}_' \
+                                  f'{self.current_model_name}_' \
+                                  f'{self.current_model_idx}.txt'
             write_file_path = os.path.join(self.current_log_dir, write_file_name)
             utility_function.write_txt(write_file_path, separator)
             utility_function.write_txt(write_file_path, str_data)
@@ -475,26 +626,28 @@ class Model_Run(object):
 
     def save_model(self):
         """"""
-        model_save_path = os.path.join(self.current_log_dir, 'models')
+        model_save_path = os.path.join(self.current_log_dir, f'models\\{self.current_model_epoch_idx}')
         if not os.path.exists(model_save_path):
-            os.mkdir(model_save_path)
+            os.makedirs(model_save_path)
 
         save_name = f'{self.start_data_time}_' \
                     f'{self.current_model_name}_' \
-                    f'{self.current_model_idx}_' \
-                    f'{self.current_epoch_idx}_.pt'
+                    f'mid-{self.current_model_epoch_idx}_' \
+                    f'eid-{self.current_epoch_idx}_.pt'
         save_path = os.path.join(model_save_path, save_name)
         if not os.path.exists(save_path):
             model_to_save = self.model.get_save_model()
             save_dict = {
                 'data_time': self.start_data_time,
                 'model_name': self.current_model_name,
-                'model_idx': self.current_model_idx,
+                'model_idx': self.current_model_epoch_idx,
                 'epoch_idx': self.current_epoch_idx,
                 'model': model_to_save,
                 'optimizer': self.optimizer,
                 'scheduler': self.scheduler
             }
+            if self.hyper_param:
+                save_dict.update({'hyper_param': self.hyper_param})
             torch.save(save_dict, save_path)
         else:
             raise FileExistsError('Current Model File Name Exist.')
@@ -511,28 +664,59 @@ class Model_Run(object):
     def write_res(self):
         """"""
         if self.train_mode == 'pretrain':
-            main_tag = f'{self.start_data_time}_{self.current_model_name}_{self.current_model_idx}'
+            main_tag = f'{self.train_mode}_{self.start_data_time}_{self.current_model_name}_{self.current_model_epoch_idx}'
 
             scalars_dict = {
                 'Loss': self.epoch_pretrain_loss_accumulator[0] / self.current_set_num_batch,
                 'MTP Loss': self.epoch_pretrain_loss_accumulator[1] / self.current_set_num_batch,
                 'NPP Loss': self.epoch_pretrain_loss_accumulator[2] / self.current_set_num_batch,
             }
-
             self.current_writer.add_scalars(main_tag,
                                             scalars_dict,
                                             self.current_epoch_idx)
+
+        elif self.train_mode == 'finetune':
+            main_tag = f'{self.train_mode}_{self.start_data_time}_{self.current_model_name}_{self.current_model_epoch_idx}'
+            scalars_dict_train = self.train_epoch_eval_dict
+            scalars_dict_val = self.test_epoch_eval_dict
+
+            self.current_writer.add_scalars(main_tag,
+                                            scalars_dict_train,
+                                            self.current_epoch_idx)
+            self.current_writer.add_scalars(main_tag,
+                                            scalars_dict_val,
+                                            self.current_epoch_idx)
+        elif self.train_mode == 'test':
+            main_tag = f'{self.train_mode}_{self.start_data_time}_{self.current_model_name}_{self.current_model_idx}'
+            scalars_dict_test = self.test_epoch_eval_dict
+            self.current_writer.add_scalars(main_tag,
+                                            scalars_dict_test,
+                                            self.current_model_epoch_idx)
+
+        else:
+            pass
+
+
 
     def finetune_init(self):
         """"""
         if self.model_dir is None:
             raise ValueError('Need \'./models \' Path')
 
-        if (self.optimizer_param is None) or (self.scheduler_param is None):
-            raise ValueError('Need optimizer and scheduler parameter for finetune')
-
         if not os.path.exists(self.model_dir):
             raise FileNotFoundError('Model File Path Not Find')
 
-        self.current_model_file_list = os.listdir(self.model_dir)
-        self.current_num_model = len(self.current_model_file_list)
+        self.current_model_list = os.listdir(self.model_dir)
+        self.num_model_idx = len(self.current_model_list)
+
+        if self.train_mode == 'test':
+            if self.num_epoch > 1:
+                raise ValueError('Epoch > 1 For Test.')
+
+        if self.train_mode == 'finetune':
+            if (self.optimizer_param is None) or (self.scheduler_param is None):
+                raise ValueError('Need optimizer and scheduler parameter for finetune')
+
+            if self.num_model_idx > 1:
+                raise ValueError('Too Much Model for finetune.')
+

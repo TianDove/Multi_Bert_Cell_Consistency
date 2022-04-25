@@ -30,18 +30,18 @@ if __name__ == '__main__':
     m_device = init_train_module.init_device('gpu', 0)
     ###################################################################################################################
     # set the data set parameters
-    m_data_set_path = '.\\pik\\22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+    m_data_set_path = '.\\pik\\test_22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
     m_rnd_token_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndtoken_32.pickle'
     m_rnd_para_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndpara.pickle'
 
     m_rnd_token = init_train_module.rnd_token_loader(m_rnd_token_path)
     m_rnd_para = init_train_module.rnd_para_loader(m_rnd_para_path)
 
-    m_train_mode = 'pretrain'  # ('pretrain', 'train', 'test', 'finetune')
+    m_train_mode = 'finetune'  # ('pretrain', 'train', 'test', 'finetune')
     #           len(batch_size)
     # pre-train        1
     # other            3
-    batch_size = [4]
+    batch_size = [64, 32, 32]
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################
     # set preprocessing
@@ -62,13 +62,13 @@ if __name__ == '__main__':
     m_model = multi_bert_model.MyMultiBertModel
     m_model_param = {
         'device': m_device,
-        'token_len': 32,
+        'token_len': m_prepro_param['token_tuple'][0],
         'rnd_token': m_rnd_token,
         'max_num_seg': 5,
         'max_num_token': 100,
         'embedding_dim': 16,
-        'n_layer': 3,
-        'n_head': 4,
+        'n_layer': 6,
+        'n_head': 8,
         'n_hid': 256
     }
     m_init_model = init_train_module.init_model(m_model, m_model_param, m_device)
@@ -119,14 +119,17 @@ if __name__ == '__main__':
     }
     ###################################################################################################################
     # set loss function
-    NPP_Loss_fn = nn.CrossEntropyLoss()
-    MTP_Loss_fn = nn.MSELoss()
+    down_Loss_fn = nn.CrossEntropyLoss()
+    m_num_class = 8
 
-    m_loss_fn_list = [NPP_Loss_fn, MTP_Loss_fn]
+    m_loss_fn_list = [down_Loss_fn,]
+    ###################################################################################################################
+    # set model path for finetune
+    m_model_dir = '.\\log\\MyMultiBertModel_2022-04-25-16-39-01\\models'
     ###################################################################################################################
     m_trainer = init_train_module.Model_Run(device=m_device,
                                             train_mode=m_train_mode,
-                                            num_epoch=1024,
+                                            num_epoch=3,
                                             data_loader=m_data_loader_dict,
                                             preprocessor=m_prepro,
                                             model=m_init_model,
@@ -134,7 +137,10 @@ if __name__ == '__main__':
                                             optimizer=m_opt,
                                             scheduler=m_sch,
                                             log_dir=m_log_dir,
-                                            hyper_param=m_hyper_param)
+                                            model_dir=m_model_dir,
+                                            optimizer_param=m_optimizer_param,
+                                            scheduler_param=m_scheduler_param,
+                                            num_class = m_num_class)
 
     # train_mode:('pretrain', 'train')
     m_trainer.run()
