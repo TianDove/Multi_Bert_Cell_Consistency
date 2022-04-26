@@ -71,12 +71,15 @@ def init_data_loader_dict(data_set_file_path: str,
         set_name_list = list(temp_data_set_dict.keys())
         if train_mode == 'pretrain':
             temp_ch_data_set_dict = {train_mode: temp_data_set_dict[train_mode]}
-        elif train_mode in ['train', 'test', 'finetune']:
+        elif train_mode in ['train', 'test']:
             temp_train_set = temp_data_set_dict['train']
             temp_pretrain_set = temp_data_set_dict['pretrain']
             temp_pretrain_cat_train_dict = {**temp_pretrain_set, **temp_train_set}
             del temp_data_set_dict['pretrain']
             temp_data_set_dict['train'] = temp_pretrain_cat_train_dict
+            temp_ch_data_set_dict = temp_data_set_dict
+        elif train_mode in ['finetune', ]:
+            del temp_data_set_dict['pretrain']
             temp_ch_data_set_dict = temp_data_set_dict
         else:
             raise ValueError('Train Mode Error.')
@@ -137,7 +140,7 @@ class Model_Run(object):
                  preprocessor,
                  num_epoch: int = 1,
                  model: torch.nn.Module = None,
-                 loss_fn_list: list[torch.nn.Module] = None,
+                 loss_fn_list= None,
                  model_param: dict = None,
                  optimizer=None,
                  scheduler=None,
@@ -231,7 +234,7 @@ class Model_Run(object):
 
         # init tensorboard writer
         self.current_log_dir = os.path.join(self.log_dir,
-                                            f'{self.current_model_name}_{self.start_data_time}')
+                                            f'{self.train_mode}_{self.current_model_name}_{self.start_data_time}')
         with SummaryWriter(log_dir=self.current_log_dir) as self.current_writer:
             if self.train_mode in ['pretrain', 'train']:
                 self.current_model_epoch_idx = 0
@@ -616,6 +619,15 @@ class Model_Run(object):
                               f'{self.current_model_epoch_idx}.txt'
             if self.train_mode in ['test', ]:
                 write_file_name = f'{self.train_mode}_' \
+                                  f'{self.start_data_time}_' \
+                                  f'{self.current_model_name}_' \
+                                  f'{self.current_model_idx}.txt'
+            if self.train_mode in ['finetune', ]:
+                if not self.model_dir:
+                    raise FileNotFoundError('Model Path For Finetune Do Not Exist.')
+                fine_tune_name = self.model_dir.split('\\')[2]
+                write_file_name = f'{fine_tune_name}_' \
+                                  f'{self.train_mode}_' \
                                   f'{self.start_data_time}_' \
                                   f'{self.current_model_name}_' \
                                   f'{self.current_model_idx}.txt'

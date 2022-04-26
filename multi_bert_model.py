@@ -308,6 +308,7 @@ class MyMultiBertModel(nn.Module):
             # ###############################################
             # all_data_df = pd.concat(data_df_list, axis=0)
             # ###############################################
+            inter_res = out_mask_data_dict
             # Mask Token End
 
         # Special Token Insert Start

@@ -41,7 +41,7 @@ if __name__ == '__main__':
     #           len(batch_size)
     # pre-train        1
     # other            3
-    batch_size = [64]
+    batch_size = [32]
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################
     # set preprocessing

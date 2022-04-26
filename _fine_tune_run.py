@@ -41,7 +41,7 @@ if __name__ == '__main__':
     #           len(batch_size)
     # pre-train        1
     # other            3
-    batch_size = [64, 32, 32]
+    batch_size = [32, 32, 32]
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################
     # set preprocessing
@@ -64,12 +64,12 @@ if __name__ == '__main__':
         'device': m_device,
         'token_len': m_prepro_param['token_tuple'][0],
         'rnd_token': m_rnd_token,
-        'max_num_seg': 5,
-        'max_num_token': 100,
-        'embedding_dim': 16,
-        'n_layer': 6,
-        'n_head': 8,
-        'n_hid': 256
+        'max_num_seg': 1,
+        'max_num_token': 1,
+        'embedding_dim': 4,
+        'n_layer': 1,
+        'n_head': 2,
+        'n_hid': 16
     }
     m_init_model = init_train_module.init_model(m_model, m_model_param, m_device)
 
@@ -125,7 +125,7 @@ if __name__ == '__main__':
     m_loss_fn_list = [down_Loss_fn,]
     ###################################################################################################################
     # set model path for finetune
-    m_model_dir = '.\\log\\MyMultiBertModel_2022-04-25-16-39-01\\models'
+    m_model_dir = '.\\log\\MyMultiBertModel_2022-04-26-09-34-19\\models'
     ###################################################################################################################
     m_trainer = init_train_module.Model_Run(device=m_device,
                                             train_mode=m_train_mode,
@@ -140,7 +140,7 @@ if __name__ == '__main__':
                                             model_dir=m_model_dir,
                                             optimizer_param=m_optimizer_param,
                                             scheduler_param=m_scheduler_param,
-                                            num_class = m_num_class)
+                                            num_class=m_num_class)
 
     # train_mode:('pretrain', 'train')
     m_trainer.run()
