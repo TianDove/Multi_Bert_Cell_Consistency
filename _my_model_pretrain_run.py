@@ -1,31 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-if __name__ == '__main__':
-    import multiprocessing
-    multiprocessing.freeze_support()
-    ###################################################################################################################
-    # std import
-    import os
-    import sys
-    ###################################################################################################################
-    # third party import
-    import numpy as np
-    import torch
-    import torch.nn as nn
-    ###################################################################################################################
-    # app specific import
-    import utility_function
-    import preprocess
-    import model_define
-    import multi_bert_model
-    import init_train_module
+import os
 
+import optuna
+import torch.nn as nn
+
+import preprocess
+import multi_bert_model
+import init_train_module
+
+def pretrain_func(trial, trial_root_path, experiment_start_time):
     ###################################################################################################################
-    # set the random seed
-    RANDOM_SEED = 42
-    np.random.seed(RANDOM_SEED)
-    torch.manual_seed(RANDOM_SEED)
-    ###################################################################################################################
+
     # set device
     m_device = init_train_module.init_device('gpu', 0)
     ###################################################################################################################
@@ -38,6 +24,9 @@ if __name__ == '__main__':
     m_rnd_para = init_train_module.rnd_para_loader(m_rnd_para_path)
 
     m_train_mode = 'pretrain'  # ('pretrain', 'train', 'test', 'finetune')
+
+    # trial number
+    current_trial_id = f'{m_train_mode}_trial_{trial.number}'
     #           len(batch_size)
     # pre-train        1
     # other            3
@@ -67,7 +56,8 @@ if __name__ == '__main__':
         'max_num_seg': 5,
         'max_num_token': 100,
         'embedding_dim': 16,
-        'n_layer': 3,
+        # 'n_layer': 3,
+        'n_layer': trial.suggest_int('n_layer', 1, 6, log=True),
         'n_head': 4,
         'n_hid': 256
     }
@@ -100,7 +90,7 @@ if __name__ == '__main__':
     m_opt, m_sch = init_train_module.init_optimaizer_scheduler(m_init_model, m_optimizer_param, m_scheduler_param)
     ###################################################################################################################
     # train
-    m_log_dir = '.\\log'
+    m_log_dir = os.path.join(trial_root_path, m_train_mode, experiment_start_time, current_trial_id)
     ###################################################################################################################
     # collect hyper parameter
     m_hyper_param = {
@@ -137,5 +127,54 @@ if __name__ == '__main__':
                                             hyper_param=m_hyper_param)
 
     # train_mode:('pretrain', 'train')
+    metric = 0.0
     m_trainer.run()
+    return metric
+
+if __name__ == '__main__':
+    import multiprocessing
+    multiprocessing.freeze_support()
+    # ###################################################################################################################
+    # # std import
+    import os
+    import sys
+    import datetime
+    import pickle
+    # ###################################################################################################################
+    # # third party import
+    import numpy as np
+    import torch
+    # import torch.nn as nn
+    # ###################################################################################################################
+    # # app specific import
+    # import utility_function
+    # import preprocess
+    # import model_define
+    # import multi_bert_model
+    # import init_train_module
+    #
+    # ###################################################################################################################
+    # set the random seed
+    data_time_str = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    RANDOM_SEED = 42
+    np.random.seed(RANDOM_SEED)
+    torch.manual_seed(RANDOM_SEED)
+    #
+    ####################################################################################################################
+    writer_dir = '.\\log'
+
+    n_trials = 8
+    sampler = optuna.samplers.TPESampler(seed=42)
+    pruner = optuna.pruners.HyperbandPruner()
+
+    study = optuna.create_study(sampler=None, pruner=None, direction="minimize")
+    study.optimize(lambda trial: pretrain_func(trial, writer_dir, data_time_str),
+                   n_trials=n_trials, timeout=600, show_progress_bar=True)
+    # get trials result
+    exp_res = study.trials_dataframe()
+    exp_res.to_csv(os.path.join(writer_dir, f'{data_time_str}_Trials_DataFrame.csv'))
+
+    # save study
+    with open(os.path.join(writer_dir, f'{data_time_str}_Study.pkl'), 'wb') as f:
+        pickle.dump(study, f)
     sys.exit(0)

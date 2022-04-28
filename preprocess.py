@@ -28,16 +28,19 @@ class BaseProcessing():
         self.num_classes = num_classes
         self.total_len = None
         self.batch_size = None
+        self.batch_size_flag = False
+        self.print_info_flag = False
 
     def pro(self,
-            train_data: torch.Tensor,
+            train_data: dict,
             train_mode: str,
             device: torch.device):
         """"""
-        self.batch_size = train_data['label'].shape[0]
-        temp_label_arr = copy.deepcopy(train_data['label']).to(device)
-        temp_label_arr = cls_label_to_one_hot(temp_label_arr,
-                                              num_classes=self.num_classes)
+        if self.batch_size_flag is False:
+            self.batch_size = train_data['label'].shape[0]
+            self.batch_size_flag = True
+        temp_label_arr = torch.clone(train_data['label']).to(torch.long)
+        temp_label_arr = F.one_hot(temp_label_arr, self.num_classes)
 
         # delete label
         del train_data['label']
@@ -48,6 +51,17 @@ class BaseProcessing():
         temp_para_tensor = torch.cat(temp_para_list, dim=1)
 
         self.total_len = temp_para_tensor.shape[1]
+
+        if not self.print_info_flag:
+            self.print_info_flag = True
+            print('-' * 64)
+            print(f'PreProcess Type: {self.__class__}')
+            print(f'Num Class: {self.num_classes}')
+            print(f'| Para | (batch, Len) |')
+            for key, val in train_data.items():
+                print(f'| {key} | {(val.shape)} |')
+            print(f'Total Len: {self.total_len}')
+            print('-' * 64)
 
         return [temp_para_tensor.to(device),
                 temp_label_arr.to(device)]
