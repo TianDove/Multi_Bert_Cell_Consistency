@@ -13,7 +13,7 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
     m_device = init_train_module.init_device('gpu', 0)
     ###################################################################################################################
     # set the data set parameters
-    m_data_set_path = '.\\pik\\test_22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+    m_data_set_path = '.\\pik\\22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
     m_rnd_token_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndtoken_32.pickle'
     m_rnd_para_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndpara.pickle'
 
@@ -27,7 +27,7 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
     #           len(batch_size)
     # pre-train        1
     # other            3
-    batch_size = [64, 32, 32]
+    batch_size = [64, 100, 100]
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################
     # set preprocessing
@@ -85,7 +85,7 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
     }
     m_opt, m_sch = init_train_module.init_optimaizer_scheduler(m_init_model, m_optimizer_param, m_scheduler_param)
     ###################################################################################################################
-
+    m_model_step = 16
     trials_pretrain = os.listdir(model_dir)
     for trial_pretrain_id, trial_pretrain_name in enumerate(trials_pretrain):
         temp_trial_pretrain_path = os.path.join(model_dir, trial_pretrain_name)
@@ -101,16 +101,16 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
 
         current_pretrain_model_name = temp_pretrain_model_list[0]
         ################################################################################################################
-        pretrain_experiment_time = model_dir.split('\\')[-1]
+        pretrain_experiment_time = model_dir.split('\\')[-2]
         
         # train
         m_log_dir = os.path.join(trial_root_path,
                                  m_train_mode,
-                                 pretrain_experiment_time,
-                                 trial_pretrain_name,
-                                 current_pretrain_model_name,
                                  experiment_start_time,
-                                 current_trial_id)
+                                 current_trial_id,
+                                 f'{pretrain_experiment_time}_'
+                                 f'{trial_pretrain_name}_'
+                                 f'{current_pretrain_model_name}')
         m_model_dir = os.path.join(temp_trial_pretrain_path, current_pretrain_model_name, 'models')
         ###################################################################################################################
         # set loss function
@@ -122,7 +122,7 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
         ###################################################################################################################
         m_trainer = init_train_module.Model_Run(device=m_device,
                                                 train_mode=m_train_mode,
-                                                num_epoch=2,
+                                                num_epoch=128,
                                                 data_loader=m_data_loader_dict,
                                                 preprocessor=m_prepro,
                                                 model=m_init_model,
@@ -133,7 +133,8 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
                                                 model_dir=m_model_dir,
                                                 optimizer_param=m_optimizer_param,
                                                 scheduler_param=m_scheduler_param,
-                                                num_class=m_num_class)
+                                                num_class=m_num_class,
+                                                pretrain_step=m_model_step)
 
         # train_mode:('pretrain', 'train')
         metric = 0.0
@@ -168,19 +169,19 @@ if __name__ == '__main__':
     data_time_str = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-    RANDOM_SEED = 42
-    np.random.seed(RANDOM_SEED)
-    torch.manual_seed(RANDOM_SEED)
+    # RANDOM_SEED = 42
+    # np.random.seed(RANDOM_SEED)
+    # torch.manual_seed(RANDOM_SEED)
     #
     ####################################################################################################################
     writer_dir = '.\\log'
     # set model path for finetune
-    model_dir = '.\\log\\pretrain\\20220426-125403'
+    model_dir = '.\\log\\pretrain\\20220428-221236\\'
     ###################################################################################################################
 
-    n_trials = 2
-    sampler = optuna.samplers.TPESampler(seed=42)
-    pruner = optuna.pruners.HyperbandPruner()
+    n_trials = 1
+    # sampler = optuna.samplers.TPESampler(seed=42)
+    # pruner = optuna.pruners.HyperbandPruner()
 
     study = optuna.create_study(sampler=None, pruner=None, direction="minimize")
     study.optimize(lambda trial: fine_tune_func(trial, writer_dir, model_dir, data_time_str),

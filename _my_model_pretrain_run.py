@@ -16,7 +16,7 @@ def pretrain_func(trial, trial_root_path, experiment_start_time):
     m_device = init_train_module.init_device('gpu', 0)
     ###################################################################################################################
     # set the data set parameters
-    m_data_set_path = '.\\pik\\test_22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+    m_data_set_path = '.\\pik\\22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
     m_rnd_token_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndtoken_32.pickle'
     m_rnd_para_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndpara.pickle'
 
@@ -30,7 +30,7 @@ def pretrain_func(trial, trial_root_path, experiment_start_time):
     #           len(batch_size)
     # pre-train        1
     # other            3
-    batch_size = [32]
+    batch_size = [64]
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################
     # set preprocessing
@@ -116,7 +116,7 @@ def pretrain_func(trial, trial_root_path, experiment_start_time):
     ###################################################################################################################
     m_trainer = init_train_module.Model_Run(device=m_device,
                                             train_mode=m_train_mode,
-                                            num_epoch=3,
+                                            num_epoch=512,
                                             data_loader=m_data_loader_dict,
                                             preprocessor=m_prepro,
                                             model=m_init_model,
@@ -156,16 +156,16 @@ if __name__ == '__main__':
     # ###################################################################################################################
     # set the random seed
     data_time_str = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    RANDOM_SEED = 42
-    np.random.seed(RANDOM_SEED)
-    torch.manual_seed(RANDOM_SEED)
+    # RANDOM_SEED = 42
+    # np.random.seed(RANDOM_SEED)
+    # torch.manual_seed(RANDOM_SEED)
     #
     ####################################################################################################################
     writer_dir = '.\\log'
 
-    n_trials = 8
-    sampler = optuna.samplers.TPESampler(seed=42)
-    pruner = optuna.pruners.HyperbandPruner()
+    n_trials = 1
+    # sampler = optuna.samplers.TPESampler(seed=42)
+    # pruner = optuna.pruners.HyperbandPruner()
 
     study = optuna.create_study(sampler=None, pruner=None, direction="minimize")
     study.optimize(lambda trial: pretrain_func(trial, writer_dir, data_time_str),

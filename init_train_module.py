@@ -165,7 +165,8 @@ class Model_Run(object):
                  model_dir: str = None,
                  hyper_param: dict = None,
                  num_class: int = None,
-                 pretrain_model_name: str = None):
+                 pretrain_model_name: str = None,
+                 pretrain_step: int = 16):
         """"""
         # store input
         self.device = device
@@ -185,6 +186,7 @@ class Model_Run(object):
         self.hyper_param = hyper_param
         self.num_class = num_class
         self.pretrain_model_name = pretrain_model_name
+        self.pretrain_step = pretrain_step
 
         # state var
         self.start_data_time = None
@@ -275,10 +277,31 @@ class Model_Run(object):
             temp_model_path = os.path.join(self.model_dir, model_idx)
             self.current_model_file_list = os.listdir(temp_model_path)
             self.num_model_epoch = len(self.current_model_file_list)
+
+            if self.pretrain_step:
+                temp_model_epoch_file_list = []
+                mod_res = self.num_model_epoch % self.pretrain_step
+                if mod_res == 0:
+                    temp_num_model_epoch = self.num_model_epoch
+
+                else:
+                    temp_num_model_epoch = self.num_model_epoch - mod_res
+
+                file_idx_range = range(0, temp_num_model_epoch, self.pretrain_step)
+                temp_model_epoch_file_list = [self.current_model_file_list[idx] for idx in file_idx_range]
+                self.current_model_file_list = temp_model_epoch_file_list
+
             for self.current_model_epoch_idx, file_name in enumerate(self.current_model_file_list):
                 load_model_path = os.path.join(temp_model_path, file_name)
                 temp_load_dict = self.load_model(load_model_path)
                 self.current_model_dict = temp_load_dict['model']
+
+                if self.train_mode in ['finetune', 'test']:
+                    split_file_name = file_name.split('_')
+                    temp_current_model_idx = split_file_name[2]
+                    self.current_model_idx = int(temp_current_model_idx.split('-')[-1])
+                    temp_current_model_epoch_idx = split_file_name[3]
+                    self.current_model_epoch_idx = int(temp_current_model_epoch_idx.split('-')[-1])
 
                 self.hyper_param = None
                 if 'hyper_param' in temp_load_dict.keys():
@@ -648,7 +671,7 @@ class Model_Run(object):
             str_data = '| Mode: {:s} | Models: {:3d}/{:3d} | Epoch: {:3d}/{:3d} ' \
                        '| Epoch Time: {:5.2f} s/batch |'.format(
                 self.train_mode,
-                self.current_model_idx + 1,self.num_model_idx,
+                self.current_model_idx + 1, self.num_model_idx,
                 self.current_model_epoch_idx + 1, self.num_model_epoch,
                 self.epoch_timer.times[-1]
             )
