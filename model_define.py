@@ -2,8 +2,10 @@
 #
 
 #
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.utils.rnn import pad_sequence
 
 def cal_conv1d_output_size(L_in, k_sz, pad=0, dilation=1, stride=1):
     """"""
@@ -70,6 +72,47 @@ class ResidualBlock(nn.Module):
         res = self.conv3(res)
         res = res + self.x_conv(x)
         return res
+
+class LocalCovBlock(nn.Module):
+
+    def __init__(self, in_ch, out_ch, conv_k_sz, pooling_f, in_sz_list, dropout=0.1):
+        """"""
+        super(LocalCovBlock, self).__init__()
+
+        self.max_pool_k_sz_list = []
+        for in_sz in in_sz_list:
+            tmp_conv_out_sz = in_sz - conv_k_sz + 1
+
+            if tmp_conv_out_sz < pooling_f:
+                raise ValueError('Conv Kernel Size Must Greater Than Pooling Factor')
+            elif tmp_conv_out_sz <=0:
+                raise ValueError('Conv Out Size is 0 or Less than 0')
+            else:
+                pass
+
+            tmp_max_pool_k_sz = tmp_conv_out_sz // pooling_f
+            self.max_pool_k_sz_list.append(tmp_max_pool_k_sz)
+
+        self.conv_pool_list = nn.ModuleList()
+        for pool_k_sz in self.max_pool_k_sz_list:
+            tmp_mod = nn.Sequential(
+                nn.Conv1d(in_channels=1, out_channels=1, kernel_size=conv_k_sz),
+                nn.MaxPool1d(kernel_size=pool_k_sz, stride=pool_k_sz)
+            )
+            self.conv_pool_list.append(tmp_mod)
+            
+
+
+    def forward(self, x):
+        """x: List[tensor]"""
+        out_tensor_list = []
+        for id, tensor in enumerate(x):
+            tmp_tensor = torch.clone(tensor)
+            tmp_out = self.conv_pool_list[id](tmp_tensor)
+            out_tensor_list.append(tmp_out)
+
+        cat_out_tensor = torch.cat(out_tensor_list, dim=-1)
+        return torch.clone(cat_out_tensor)
 
 
 class BaseLine_MLP(nn.Module):
@@ -297,19 +340,94 @@ class BaseLine_ResNet(nn.Module):
 
 class BaseLine_MCNN(nn.Module):
     def __init__(self,
-                 in_dim,
-                 num_cls,
-                 loss_func=None,
-                 dropout=0.1):
+                 in_dim: int,
+                 num_cls: int,
+                 k_size: tuple = (2, 4, 8, 16),
+                 win_size: tuple = (4, 8, 16, 32),
+                 loss_func = None,
+                 dropout: float = 0.1):
         """"""
         super(BaseLine_MCNN, self).__init__()
         self.model_name = self.__class__.__name__
         self.model_batch_out = None
         self.model_batch_loss = None
 
+        self.in_dim = in_dim
+        self.num_cls = num_cls
+        self.k_tuple = k_size
+        self.win_tuple = win_size
+        self.loss_func = loss_func
+        self.dropout = dropout
+
+        self.num_aug_data = len(self.k_tuple) + len(self.win_tuple) + 1
+
+        self.tmp_input_tensor = torch.rand((1, 1, self.in_dim), dtype=torch.float32)
+        self.k_sz_list = []
+        for k in self.k_tuple:
+            temp_in_data = torch.clone(self.tmp_input_tensor)
+            temp_k_down_data = F.interpolate(input=temp_in_data, scale_factor=1 / k)
+            self.k_sz_list.append(temp_k_down_data.shape[-1])
+
+        self.win_sz_list = []
+        for win in self.win_tuple:
+            temp_in_data = torch.clone(self.tmp_input_tensor)
+            temp_l_move_data = temp_in_data.unfold(-1, win, 1)
+            temp_l_avg_data = temp_l_move_data.mean(-1)
+            self.win_sz_list.append(temp_l_avg_data.shape[-1])
+
+        self.org_k_win_sz_list = [in_dim, ] + self.k_sz_list + self.win_sz_list
+
+
+        self.local_conv_list = LocalCovBlock(in_ch=1,
+                                             out_ch=1,
+                                             conv_k_sz=3,
+                                             pooling_f = 3,
+                                             in_sz_list=self.org_k_win_sz_list)
+
+        self.conv = nn.Conv1d(in_channels=1, out_channels=256, kernel_size=3)
+        self.pool = nn.MaxPool1d(kernel_size=3)
+
+        self.flat = nn.Flatten(start_dim=1)
+        self.linear1 = nn.Linear(2048, 256)
+        self.act = nn.ReLU()
+        self.linear2 = nn.Linear(256, num_cls)
+        self.softmax = nn.Softmax(dim=-1)
+
+
     def forward(self, x, y=None):
         """"""
-        res = x
+        x_3d = x.unsqueeze(dim=1)
+        for_org = torch.clone(x_3d)
+
+        # down sample
+        for_down_sample = torch.clone(x_3d)
+        in_data_size = for_down_sample.shape
+        down_sample_data_list = []
+        for k in self.k_tuple:
+            temp_in_data = torch.clone(for_down_sample)
+            temp_k_down_data = F.interpolate(input=temp_in_data, scale_factor=1 / k)
+            down_sample_data_list.append(temp_k_down_data)
+
+        # move average
+        for_multi_freq = torch.clone(x_3d)
+        move_average_data_list = []
+        for sz in self.win_tuple:
+            temp_in_data = torch.clone(for_multi_freq)
+            temp_l_move_data = temp_in_data.unfold(-1, sz, 1)
+            temp_l_avg_data = temp_l_move_data.mean(-1)
+            move_average_data_list.append(temp_l_avg_data)
+
+        tmp_tensor_list = [for_org, ] + down_sample_data_list + move_average_data_list
+
+        inter_res = self.local_conv_list(tmp_tensor_list)
+        inter_res = self.conv(inter_res)
+        inter_res = self.pool(inter_res)
+
+        inter_res = self.flat(inter_res)
+        inter_res = self.linear1(inter_res)
+        inter_res = self.act(inter_res)
+        inter_res = self.linear2(inter_res)
+        res = self.softmax(inter_res)
 
         self.model_batch_out = res
 
