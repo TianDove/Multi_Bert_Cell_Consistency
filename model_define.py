@@ -97,7 +97,8 @@ class LocalCovBlock(nn.Module):
         for pool_k_sz in self.max_pool_k_sz_list:
             tmp_mod = nn.Sequential(
                 nn.Conv1d(in_channels=1, out_channels=1, kernel_size=conv_k_sz),
-                nn.MaxPool1d(kernel_size=pool_k_sz, stride=pool_k_sz)
+                nn.MaxPool1d(kernel_size=pool_k_sz, stride=pool_k_sz),
+                nn.ReLU(),
             )
             self.conv_pool_list.append(tmp_mod)
             
@@ -109,6 +110,7 @@ class LocalCovBlock(nn.Module):
         for id, tensor in enumerate(x):
             tmp_tensor = torch.clone(tensor)
             tmp_out = self.conv_pool_list[id](tmp_tensor)
+            print(tmp_out.shape)
             out_tensor_list.append(tmp_out)
 
         cat_out_tensor = torch.cat(out_tensor_list, dim=-1)
@@ -344,6 +346,8 @@ class BaseLine_MCNN(nn.Module):
                  num_cls: int,
                  k_size: tuple = (2, 4, 8, 16),
                  win_size: tuple = (4, 8, 16, 32),
+                 conv_k_sz_rate: float = 0.05,
+                 p_factor: int = 5,
                  loss_func = None,
                  dropout: float = 0.1):
         """"""
@@ -358,6 +362,9 @@ class BaseLine_MCNN(nn.Module):
         self.win_tuple = win_size
         self.loss_func = loss_func
         self.dropout = dropout
+        self.p_factor = p_factor
+        self.conv_k_sz_rate = conv_k_sz_rate
+        self.conv_k_sz = int(in_dim * conv_k_sz_rate)
 
         self.num_aug_data = len(self.k_tuple) + len(self.win_tuple) + 1
 
@@ -380,16 +387,17 @@ class BaseLine_MCNN(nn.Module):
 
         self.local_conv_list = LocalCovBlock(in_ch=1,
                                              out_ch=1,
-                                             conv_k_sz=3,
-                                             pooling_f = 3,
+                                             conv_k_sz=self.conv_k_sz,
+                                             pooling_f = self.p_factor,
                                              in_sz_list=self.org_k_win_sz_list)
 
         self.conv = nn.Conv1d(in_channels=1, out_channels=256, kernel_size=3)
         self.pool = nn.MaxPool1d(kernel_size=3)
+        self.act1 = nn.ReLU()
 
         self.flat = nn.Flatten(start_dim=1)
         self.linear1 = nn.Linear(2048, 256)
-        self.act = nn.ReLU()
+        self.act2 = nn.ReLU()
         self.linear2 = nn.Linear(256, num_cls)
         self.softmax = nn.Softmax(dim=-1)
 
@@ -422,10 +430,11 @@ class BaseLine_MCNN(nn.Module):
         inter_res = self.local_conv_list(tmp_tensor_list)
         inter_res = self.conv(inter_res)
         inter_res = self.pool(inter_res)
+        inter_res = self.act1(inter_res)
 
         inter_res = self.flat(inter_res)
         inter_res = self.linear1(inter_res)
-        inter_res = self.act(inter_res)
+        inter_res = self.act2(inter_res)
         inter_res = self.linear2(inter_res)
         res = self.softmax(inter_res)
 

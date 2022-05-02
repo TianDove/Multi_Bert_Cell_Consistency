@@ -25,7 +25,7 @@ if __name__ == '__main__':
         m_device = init_train_module.init_device('gpu', 0)
         ###################################################################################################################
         # set the data set parameters
-        m_data_set_path = '.\\pik\\22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+        m_data_set_path = '.\\pik\\test_22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
 
         m_train_mode = 'train'  # ('pretrain', 'train', 'test', 'finetune')
 
@@ -87,7 +87,7 @@ if __name__ == '__main__':
         ###################################################################################################################
         m_trainer = init_train_module.Model_Run(device=m_device,
                                                 train_mode=m_train_mode,
-                                                num_epoch=512,
+                                                num_epoch=3,
                                                 data_loader=m_data_loader_dict,
                                                 preprocessor=m_prepro,
                                                 model=m_init_model,
@@ -107,9 +107,9 @@ if __name__ == '__main__':
 
     m_model_func_list = [
         model_define.BaseLine_MCNN,
-        model_define.BaseLine_MLP,
-        model_define.BaseLine_FCN,
-        model_define.BaseLine_ResNet
+        # model_define.BaseLine_MLP,
+        # model_define.BaseLine_FCN,
+        # model_define.BaseLine_ResNet
     ]
 
     m_model_params = {
