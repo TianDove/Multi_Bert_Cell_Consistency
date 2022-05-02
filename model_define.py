@@ -110,7 +110,7 @@ class LocalCovBlock(nn.Module):
         for id, tensor in enumerate(x):
             tmp_tensor = torch.clone(tensor)
             tmp_out = self.conv_pool_list[id](tmp_tensor)
-            print(tmp_out.shape)
+            # print(tmp_out.shape)
             out_tensor_list.append(tmp_out)
 
         cat_out_tensor = torch.cat(out_tensor_list, dim=-1)
@@ -384,7 +384,6 @@ class BaseLine_MCNN(nn.Module):
 
         self.org_k_win_sz_list = [in_dim, ] + self.k_sz_list + self.win_sz_list
 
-
         self.local_conv_list = LocalCovBlock(in_ch=1,
                                              out_ch=1,
                                              conv_k_sz=self.conv_k_sz,
@@ -396,7 +395,7 @@ class BaseLine_MCNN(nn.Module):
         self.act1 = nn.ReLU()
 
         self.flat = nn.Flatten(start_dim=1)
-        self.linear1 = nn.Linear(2048, 256)
+        self.linear1 = nn.Linear(3584, 256)
         self.act2 = nn.ReLU()
         self.linear2 = nn.Linear(256, num_cls)
         self.softmax = nn.Softmax(dim=-1)

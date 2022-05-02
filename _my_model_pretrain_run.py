@@ -9,6 +9,7 @@ import preprocess
 import multi_bert_model
 import init_train_module
 
+
 def pretrain_func(trial, trial_root_path, experiment_start_time):
     ###################################################################################################################
 
@@ -30,7 +31,13 @@ def pretrain_func(trial, trial_root_path, experiment_start_time):
     #           len(batch_size)
     # pre-train        1
     # other            3
-    batch_size = [64]
+    # batch_size = [2048, ]
+    batch_size = [trial.suggest_categorical(f'Batch Size',
+                                            [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048])]
+
+    print(batch_size)
+
+    m_num_epoch = 512
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################
     # set preprocessing
@@ -56,8 +63,8 @@ def pretrain_func(trial, trial_root_path, experiment_start_time):
         'max_num_seg': 5,
         'max_num_token': 100,
         'embedding_dim': 16,
-        # 'n_layer': 3,
-        'n_layer': trial.suggest_int('n_layer', 1, 6, log=True),
+        'n_layer': 3,
+        # 'n_layer': trial.suggest_int('n_layer', 1, 6, log=True),
         'n_head': 4,
         'n_hid': 256
     }
@@ -116,7 +123,7 @@ def pretrain_func(trial, trial_root_path, experiment_start_time):
     ###################################################################################################################
     m_trainer = init_train_module.Model_Run(device=m_device,
                                             train_mode=m_train_mode,
-                                            num_epoch=512,
+                                            num_epoch=m_num_epoch,
                                             data_loader=m_data_loader_dict,
                                             preprocessor=m_prepro,
                                             model=m_init_model,
@@ -128,7 +135,7 @@ def pretrain_func(trial, trial_root_path, experiment_start_time):
 
     # train_mode:('pretrain', 'train')
     metric = 0.0
-    m_trainer.run()
+    # m_trainer.run()
     return metric
 
 if __name__ == '__main__':
@@ -163,13 +170,14 @@ if __name__ == '__main__':
     ####################################################################################################################
     writer_dir = '.\\log'
 
-    n_trials = 1
-    # sampler = optuna.samplers.TPESampler(seed=42)
+    n_trials = 12
+    sampler = optuna.samplers.TPESampler(seed=42)
+    sampler = optuna.samplers.GridSampler(search_space={'Batch Size': [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]})
     # pruner = optuna.pruners.HyperbandPruner()
 
-    study = optuna.create_study(sampler=None, pruner=None, direction="minimize")
+    study = optuna.create_study(sampler=sampler, pruner=None, direction="minimize")
     study.optimize(lambda trial: pretrain_func(trial, writer_dir, data_time_str),
-                   n_trials=n_trials, timeout=600, show_progress_bar=True)
+                   n_trials=n_trials, timeout=600)
     # get trials result
     exp_res = study.trials_dataframe()
     exp_res.to_csv(os.path.join(writer_dir, f'{data_time_str}_Trials_DataFrame.csv'))
