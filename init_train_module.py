@@ -338,6 +338,7 @@ class Model_Run(object):
             self.current_writer.add_hparams(self.hyper_param,
                                             {'None': 0.0})
 
+        tmp_epoch_loss_accumulator = utility_function.Accumulator(1)
         # init epoch timer
         self.epoch_timer = utility_function.Timer()
 
@@ -347,9 +348,11 @@ class Model_Run(object):
 
             if self.train_mode == 'pretrain':
                 self.current_epoch_train_loss = self.train_iter()
+                tmp_epoch_loss_accumulator.add(self.current_epoch_train_loss)
             elif self.train_mode in ['train', 'finetune']:
                 self.current_epoch_train_loss = self.train_iter()
                 self.current_epoch_test_loss = self.test_iter()
+                tmp_epoch_loss_accumulator.add(self.current_epoch_test_loss)
             elif self.train_mode == 'test':
                 self.current_epoch_test_loss = self.test_iter()
             else:
@@ -372,7 +375,7 @@ class Model_Run(object):
         if self.train_mode == 'pretrain':
             if not self.current_epoch_train_loss:
                 raise ValueError(f'{self.train_mode} Epoch Out: None or Empty Loss.')
-            return self.current_epoch_train_loss
+            return tmp_epoch_loss_accumulator[-1] / self.num_epoch
         else:
             if not self.test_epoch_eval_dict:
                 raise ValueError(f'{self.train_mode} Epoch Out: None or Empty Eval Dict.')
@@ -505,8 +508,10 @@ class Model_Run(object):
             model_out, _, NSP_pred, NSP_label, MLM_pred, MLM_label = model_out_tulpe
             NPP_Loss = torch.zeros(1, dtype=torch.float32, device=self.device)
             MTP_Loss = torch.zeros(1, dtype=torch.float32, device=self.device)
-            NPP_Loss = self.loss_fn_list[0](NSP_pred.to(torch.float32),
-                                            NSP_label.to(torch.float32))
+
+            if NSP_pred is not None:
+                NPP_Loss = self.loss_fn_list[0](NSP_pred.to(torch.float32),
+                                                NSP_label.to(torch.float32))
             if MLM_pred is not None:
                 MTP_Loss = self.loss_fn_list[1](MLM_pred.to(torch.float32),
                                                 MLM_label.to(torch.float32))

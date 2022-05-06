@@ -72,7 +72,8 @@ class MyMultiBertModelProcessing(object):
     def __init__(self,
                  num_classes,
                  token_tuple: tuple,
-                 rnd_para_dict: dict):
+                 rnd_para_dict: dict,
+                 params:tuple = None):
         """"""
         self.token_tuple = token_tuple
         self.num_classes = num_classes
@@ -83,6 +84,7 @@ class MyMultiBertModelProcessing(object):
         self.t_len = token_tuple[0]
         self.overlap = token_tuple[1]
         self.step = token_tuple[2]
+        self.params = params
 
     def pro(self,
             train_data: dict,
@@ -101,9 +103,19 @@ class MyMultiBertModelProcessing(object):
 
         # delete label
         del train_data['label']
-        rpl_label_onehot_tensor_device = []
-        temp_data_dict = train_data
+        rpl_label_onehot_tensor_device = None
+        temp_data_dict = None
+
+        if self.params:
+            temp_data_dict = {}
+            for key in self.params:
+                temp_data_dict[key] = train_data[key]
+        else:
+            temp_data_dict = train_data
+
+
         if train_mode == 'pretrain':
+            rpl_label_onehot_tensor_device = []
             temp_data_dict, rpl_label_tensor = self.next_para_replace(temp_data_dict)
             rpl_label_onehot_tensor = F.one_hot(rpl_label_tensor, 2)
             rpl_label_onehot_tensor_cp = torch.clone(rpl_label_onehot_tensor)

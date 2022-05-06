@@ -142,6 +142,7 @@ class MyMultiBertModel(nn.Module):
                  n_layer:int,
                  n_head: int,
                  n_hid: int,
+                 num_token:int = 41,
                  dropout: float = 0.1):
         """"""
         super(MyMultiBertModel, self).__init__()
@@ -155,6 +156,7 @@ class MyMultiBertModel(nn.Module):
         self.n_head = n_head
         self.n_hid = n_hid
         self.dropout = dropout
+        self.num_token = num_token
 
         # scalar
         self.scale = math.sqrt(embedding_dim)
@@ -163,7 +165,6 @@ class MyMultiBertModel(nn.Module):
         self.model_batch_loss = None
         self.NPP_batch_loss = None
         self.MTP_batch_loss = None
-        self.num_token = None
         self.batch_size = None
         self.mask_rate = 0.15
 
@@ -215,7 +216,7 @@ class MyMultiBertModel(nn.Module):
 
         # DownStream Head
         self.downstream_head = MyDownStreamHead(num_class=8,
-                                                num_token= 41,
+                                                num_token=self.num_token,
                                                 embedding_token_dim=embedding_dim,
                                                 dropout=dropout)
 
@@ -336,75 +337,81 @@ class MyMultiBertModel(nn.Module):
         paras_df_list = []
 
         token_idx_list = []
-        for para_name, para_val in inter_res.items():
-            temp_segment_list = []
-            temp_para_df_list = []
-            if curr_segment_index[0] == 0:
-                temp_segment_list.append(torch.clone(cls_token))
-                temp_segment_list.append(torch.clone(sos_token))
+        if len(inputs) == 5:
+            for para_name, para_val in inter_res.items():
+                temp_segment_list = []
+                temp_para_df_list = []
+                if curr_segment_index[0] == 0:
+                    temp_segment_list.append(torch.clone(cls_token))
+                    temp_segment_list.append(torch.clone(sos_token))
 
-                token_idx_list.append('CLS')
-                token_idx_list.append('SOS')
+                    token_idx_list.append('CLS')
+                    token_idx_list.append('SOS')
 
-                # #################################################
-                # temp_para_df_list.append(sp_token_df.loc[['CLS']])
-                # temp_para_df_list.append(sp_token_df.loc[['SOS']])
-                # ###################################################
+                    # #################################################
+                    # temp_para_df_list.append(sp_token_df.loc[['CLS']])
+                    # temp_para_df_list.append(sp_token_df.loc[['SOS']])
+                    # ###################################################
 
-            temp_segment_list.append(torch.clone(para_val))
+                temp_segment_list.append(torch.clone(para_val))
 
-            tmp_size = para_val.shape
-            temp_idx_list = ['None'] * tmp_size[1]
-            if mlm_para_label_list:
-                temp_para_mask_id_list = mlm_para_label_list[curr_segment_index[0]]
-                for id, _, mask_type in temp_para_mask_id_list:
-                    temp_idx_list[id] = mask_type
-            token_idx_list = token_idx_list + temp_idx_list
+                tmp_size = para_val.shape
+                temp_idx_list = ['None'] * tmp_size[1]
+                if mlm_para_label_list:
+                    temp_para_mask_id_list = mlm_para_label_list[curr_segment_index[0]]
+                    for id, _, mask_type in temp_para_mask_id_list:
+                        temp_idx_list[id] = mask_type
+                token_idx_list = token_idx_list + temp_idx_list
 
-            # #######################################################
-            # temp_para_df = para_val[0, :, :].detach().cpu().numpy()
-            # temp_para_df = pd.DataFrame(data=temp_para_df)
-            # if mlm_label is not None:
-            #     temp_para_mask_id_list = mlm_label[curr_segment_index[0]]
-            #     for id, _, mask_type in temp_para_mask_id_list:
-            #         temp_para_df = temp_para_df.rename(index={id: mask_type})
-            # temp_para_df_list.append(temp_para_df)
-            # #######################################################
+                # #######################################################
+                # temp_para_df = para_val[0, :, :].detach().cpu().numpy()
+                # temp_para_df = pd.DataFrame(data=temp_para_df)
+                # if mlm_label is not None:
+                #     temp_para_mask_id_list = mlm_label[curr_segment_index[0]]
+                #     for id, _, mask_type in temp_para_mask_id_list:
+                #         temp_para_df = temp_para_df.rename(index={id: mask_type})
+                # temp_para_df_list.append(temp_para_df)
+                # #######################################################
 
-            if curr_segment_index[0] != (self.max_num_seg - 1):
-                temp_segment_list.append(torch.clone(stp_token))
-                token_idx_list.append('STP')
+                if curr_segment_index[0] != (self.max_num_seg - 1):
+                    temp_segment_list.append(torch.clone(stp_token))
+                    token_idx_list.append('STP')
 
-                # #################################################
-                # temp_para_df_list.append(sp_token_df.loc[['STP']])
-                # ###################################################
+                    # #################################################
+                    # temp_para_df_list.append(sp_token_df.loc[['STP']])
+                    # ###################################################
 
-            else:
-                temp_segment_list.append(torch.clone(eos_token))
-                token_idx_list.append('EOS')
-                # #################################################
-                # temp_para_df_list.append(sp_token_df.loc[['EOS']])
-                # ###################################################
+                else:
+                    temp_segment_list.append(torch.clone(eos_token))
+                    token_idx_list.append('EOS')
+                    # #################################################
+                    # temp_para_df_list.append(sp_token_df.loc[['EOS']])
+                    # ###################################################
 
-            # concat tokens
-            temp_segment_arr = torch.cat(temp_segment_list, dim=1)
-            # append segment arr to sequence list
-            sequence_list.append(temp_segment_arr)
+                # concat tokens
+                temp_segment_arr = torch.cat(temp_segment_list, dim=1)
+                # append segment arr to sequence list
+                sequence_list.append(temp_segment_arr)
 
-            # #######################################################
-            # temp_para_with_sp_df = pd.concat(temp_para_df_list, axis=0)
-            # paras_df_list.append(temp_para_with_sp_df)
-            # #######################################################
+                # #######################################################
+                # temp_para_with_sp_df = pd.concat(temp_para_df_list, axis=0)
+                # paras_df_list.append(temp_para_with_sp_df)
+                # #######################################################
 
-            # generate segment index
-            temp_segment_idx = curr_segment_index * temp_segment_arr.shape[1]
-            segment_index = segment_index + temp_segment_idx
-            curr_segment_index[0] = curr_segment_index[0] + 1
+                # generate segment index
+                temp_segment_idx = curr_segment_index * temp_segment_arr.shape[1]
+                segment_index = segment_index + temp_segment_idx
+                curr_segment_index[0] = curr_segment_index[0] + 1
 
-        temp_sequence_arr = torch.cat(sequence_list, dim=1)
-        # ################################################
-        # paras_df = pd.concat(paras_df_list, axis=0)
-        # ################################################
+            temp_sequence_arr = torch.cat(sequence_list, dim=1)
+            # ################################################
+            # paras_df = pd.concat(paras_df_list, axis=0)
+            # ################################################
+        elif len(inputs) == 1:
+            para_key_list = list(inter_res.keys())
+            temp_sequence_arr = torch.clone(inter_res[para_key_list[-1]])
+            segment_index = curr_segment_index * temp_sequence_arr.shape[1]
+
 
         temp_mlm_pos_gt_list = None
         if mlm_para_label_list:
