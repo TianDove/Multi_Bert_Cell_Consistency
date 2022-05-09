@@ -213,3 +213,31 @@ class MyMultiBertModelProcessing(object):
         """"""
         pass
 
+
+class CAEProcessing():
+    """"""
+    def __init__(self,
+                 train_mode,
+                 para):
+        """"""
+        self.train_mode = train_mode
+        self.para = para
+        self.batch_size_flag = False
+        self.print_info_flag = False
+
+        self.batch_size = None
+
+    def pro(self,
+            train_data: dict,
+            train_mode,
+            device: torch.device):
+        """"""
+        temp_data = train_data[self.para]
+
+        temp_data_unsq = temp_data.unsqueeze(1)
+        temp_label = torch.clone(temp_data_unsq)
+
+        return [temp_data_unsq.to(device),
+                temp_label.to(device),
+                train_mode]
+

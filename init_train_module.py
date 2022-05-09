@@ -152,7 +152,7 @@ class Model_Run(object):
                  device: torch.device,
                  train_mode: str,
                  data_loader,
-                 preprocessor,
+                 preprocessor=None,
                  num_epoch: int = 1,
                  model: torch.nn.Module = None,
                  loss_fn_list= None,
@@ -376,6 +376,8 @@ class Model_Run(object):
             if not self.current_epoch_train_loss:
                 raise ValueError(f'{self.train_mode} Epoch Out: None or Empty Loss.')
             return tmp_epoch_loss_accumulator[-1] / self.num_epoch
+        elif self.model.model_name == 'CAE':
+            return tmp_epoch_loss_accumulator[-1] / self.num_epoch
         else:
             if not self.test_epoch_eval_dict:
                 raise ValueError(f'{self.train_mode} Epoch Out: None or Empty Eval Dict.')
@@ -423,7 +425,7 @@ class Model_Run(object):
                 self.batch_test_timer.stop()
 
         # calculate epoch eval
-        if self.train_mode != 'pretrain':
+        if (self.train_mode != 'pretrain') and (self.model.model_name != 'CAE'):
             self.current_epoch_eval_dict = self.cal_accuracy(self.current_epoch_output_label_list)
             for key, val in self.current_epoch_eval_dict.items():
                 tmp_key = 'test_' + key
@@ -471,7 +473,7 @@ class Model_Run(object):
             self.batch_train_timer.stop()
 
         # calculate epoch eval
-        if self.train_mode != 'pretrain':
+        if (self.train_mode != 'pretrain') and (self.model.model_name != 'CAE'):
             self.current_epoch_eval_dict = self.cal_accuracy(self.current_epoch_output_label_list)
             for key, val in self.current_epoch_eval_dict.items():
                 tmp_key = 'train_' + key
@@ -497,6 +499,7 @@ class Model_Run(object):
         self.model_timer.start()
 
         # run model
+        # data_dict, label_one_hot, rpl_label_onehot, train_mode
         model_out_tulpe = self.model(*input_tulpe)
 
         # stop model timer
@@ -779,15 +782,25 @@ class Model_Run(object):
 
         elif self.train_mode in ['finetune', 'train']:
             main_tag = f'{self.train_mode}_{self.start_data_time}_{self.current_model_name}_{self.current_model_epoch_idx}'
-            scalars_dict_train = self.train_epoch_eval_dict
-            scalars_dict_val = self.test_epoch_eval_dict
 
-            self.current_writer.add_scalars(main_tag,
-                                            scalars_dict_train,
-                                            self.current_epoch_idx)
-            self.current_writer.add_scalars(main_tag,
-                                            scalars_dict_val,
-                                            self.current_epoch_idx)
+            if self.model.model_name != 'CAE':
+                scalars_dict_train = self.train_epoch_eval_dict
+                scalars_dict_val = self.test_epoch_eval_dict
+
+                self.current_writer.add_scalars(main_tag,
+                                                scalars_dict_train,
+                                                self.current_epoch_idx)
+                self.current_writer.add_scalars(main_tag,
+                                                scalars_dict_val,
+                                                self.current_epoch_idx)
+            else:
+                scalars_dict = {
+                    'Train Loss': self.current_epoch_train_loss,
+                    'Val Loss': self.current_epoch_test_loss,
+                }
+                self.current_writer.add_scalars(main_tag,
+                                                scalars_dict,
+                                                self.current_epoch_idx)
         elif self.train_mode == 'test':
             main_tag = f'{self.train_mode}_{self.start_data_time}_{self.current_model_name}_{self.current_model_idx}'
             scalars_dict_test = self.test_epoch_eval_dict

@@ -30,17 +30,45 @@ class MyDownStreamHead(nn.Module):
         self.norm = nn.BatchNorm1d(num_class)
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, in_data):
+    def forward(self, x):
         """
 
         :param in_data: (Batch_size, num_token, embedding dim)
         :return:(Batch_size, num_Class)
         """
-        in_data = self.flat(in_data)
+        in_data = self.flat(x)
         in_data = self.dropout(in_data)
         in_data = self.linear(in_data)
         in_data = self.activ(in_data)
         in_data = self.norm(in_data)
+        in_data = self.softmax(in_data)
+        return in_data
+
+class CLSDownStreamHead(nn.Module):
+    """"""
+    def __init__(self,
+                 num_class,
+                 embedding_token_dim,
+                 dropout=0.1):
+        """"""
+        super(CLSDownStreamHead, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        self.linear1 = nn.Linear(in_features=embedding_token_dim, out_features=2 * embedding_token_dim)
+        self.activ = nn.GELU()
+        self.norm = nn.BatchNorm1d(2 * embedding_token_dim)
+        self.linear2 = nn.Linear(in_features=2 * embedding_token_dim, out_features=num_class)
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, x):
+        """
+        :param in_data: (Batch_size, num_token, embedding dim)
+        :return:(Batch_size, num_Class)
+        """
+        in_data = self.linear1(x)
+        in_data = self.activ(in_data)
+        in_data = self.norm(in_data)
+        in_data = self.dropout(in_data)
+        in_data = self.linear2(in_data)
         in_data = self.softmax(in_data)
         return in_data
 
@@ -100,7 +128,8 @@ class CovTokenEmbedding(nn.Module):
     def __init__(self, max_len, dropout=0.1):
         """"""
         super(CovTokenEmbedding, self).__init__()
-        self.in_ch = max_len
+        self.in_len = max_len
+        self.in_ch = 1
         self.stride = (1, 1, 1, 1, 1, 1)
         self.ksz = (7, 5, 3, 3, 2, 2)
         self.cov_blk = nn.Sequential()
@@ -113,6 +142,18 @@ class CovTokenEmbedding(nn.Module):
                                               padding=0))
 
             self.cov_blk.add_module(f'drop{i}', nn.Dropout(dropout))
+
+        self.out_sz = None
+        self.out_sz = self.cal_out_sz()
+
+    def cal_out_sz(self):
+        tmp_in = self.in_len
+        tmp_out = None
+        for i, ksz_stride in enumerate(zip(self.ksz, self.stride)):
+            tmp_out = ((tmp_in - ksz_stride[0]) / ksz_stride[-1]) + 1
+            tmp_in = tmp_out
+        tmp_out_sz = (1, 1, tmp_out)
+        return tmp_out_sz
 
     def forward(self, in_data):
         """
@@ -182,7 +223,7 @@ class MyMultiBertModel(nn.Module):
                                                     max_norm=3)
 
         # Token Embedding
-        self.token_embedding = CovTokenEmbedding(1, dropout=dropout)
+        self.token_embedding = CovTokenEmbedding(self.token_len, dropout=dropout)
 
         # Segment Embedding
         self.segment_embedding = nn.Embedding(num_embeddings=max_num_seg,

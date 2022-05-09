@@ -475,3 +475,4 @@ class BaseLine_MCNN(nn.Module):
         """"""
         model = cls(**init_dic)
         return model
+
