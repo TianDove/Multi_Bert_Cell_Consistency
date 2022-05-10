@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import math
+import os
+
 import torch
 import torch.nn as nn
+import model_define
 
 class CAEDecoder(nn.Module):
     def __init__(self,
@@ -226,4 +229,135 @@ class CAE(nn.Module):
     def init_model(cls, init_dic: dict):
         """"""
         model = cls(**init_dic)
+
+        for p in model.parameters():
+            if p.dim() > 1:
+                torch.nn.init.xavier_uniform_(p)
+        return model
+
+
+class BaseLine_DDDOM(nn.Module):
+    def __init__(self,
+                 cae_model_path,
+                 num_cls: int = 8,
+                 num_paras: int = 5,
+                 cae_hid: int = 10,
+                 loss_func=None,
+                 dropout: float = 0.1):
+        """"""
+        super(BaseLine_DDDOM, self).__init__()
+        self.model_name = self.__class__.__name__
+        self.model_batch_out = None
+        self.model_batch_loss = None
+
+        self.cae_model_path = cae_model_path
+        self.num_cls = num_cls
+        self.num_paras = num_paras
+        self.cae_hid = cae_hid
+        self.loss_func = loss_func
+        self.dropout = dropout
+
+
+        self.cae_dict = {
+            'ch1v': CAE('ch', 256),
+            'ch2v': CAE('ch', 256),
+            'dcv': CAE('ch', 256),
+            'ch3v': CAE('ch', 256),
+            'ch3c': CAE('ch', 256),
+        }
+
+        if os.path.exists(self.cae_model_path):
+            self.load_multi_cae()
+        else:
+            raise FileNotFoundError('CAE Model Path Not Exist.')
+
+        self.mlp = nn.Sequential(
+            model_define.Dense_Sigmoid(self.cae_hid * self.num_paras, 128, dropout=self.dropout),
+            model_define.Dense_Sigmoid(128, 64, dropout=self.dropout),
+            model_define.Dense_Sigmoid(64, 32, dropout=self.dropout),
+            nn.Linear(in_features=32, out_features=self.num_cls),
+            nn.Softmax(dim=-1),
+        )
+
+    def load_multi_cae(self):
+        """"""
+        cae_model_list = os.listdir(self.cae_model_path)
+
+        for cae_file_name in cae_model_list:
+            temp_cae_model_path = os.path.join(self.cae_model_path, cae_file_name)
+
+            if os.path.exists(temp_cae_model_path):
+                temp_model_dict = torch.load(temp_cae_model_path)
+                temp_model = temp_model_dict['model']
+            else:
+                raise FileNotFoundError(f'File No Find: {temp_cae_model_path}')
+
+            temp_file_name, temp_file_type = os.path.splitext(cae_file_name)
+            temp_file_name_list = temp_file_name.split('_')
+            temp_model_para = temp_file_name_list[-1]
+
+            self.cae_dict[temp_model_para].set_model_attr(temp_model)
+            for (name, param) in self.cae_dict[temp_model_para].named_parameters():
+                param.requires_grad = False
+
+
+    def forward(self, x, y=None, train_mode:str=None):
+        """"""
+
+        res = x
+
+        para_hid = []
+        for key, temp_cae in self.cae_dict.items():
+            temp_para_data = x[key]
+            temp_hid, _ = temp_cae(temp_para_data, y, train_mode='test')
+            para_hid.append(temp_hid)
+        para_hid_tensor = torch.cat(para_hid, dim=1)
+
+        res = self.mlp(para_hid_tensor)
+
+
+        self.model_batch_out = res
+
+        if (y is not None) and (self.loss_func is not None):
+            ls = self.loss_func(res, y)
+            self.model_batch_loss = ls
+            return ls
+        else:
+            if y is not None:
+                return (res, y)
+            else:
+                raise ValueError('Label Data is Empty or None.')
+
+
+    def get_out(self):
+        """"""
+        return self.model_batch_out
+
+
+    def get_loss(self):
+        """"""
+        return self.model_batch_loss
+
+    def get_save_model(self):
+        """"""
+        attr_need = self.__dict__
+        save_model_dict = {}
+        for attr in attr_need:
+            save_model_dict[attr] = getattr(self, attr)
+        return save_model_dict
+
+    def set_model_attr(self, model_attr_dict):
+        """"""
+        for attr, val in model_attr_dict.items():
+            setattr(self, attr, val)
+
+    @classmethod
+    def init_model(cls, init_dic: dict):
+        """"""
+        model = cls(**init_dic)
+
+        for p in model.parameters():
+            if p.dim() > 1:
+                torch.nn.init.xavier_uniform_(p)
+
         return model

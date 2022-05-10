@@ -125,7 +125,7 @@ def init_model(model: torch.nn.Module,
     """"""
     if model != {}:
         temp_model = model(**model_param_dict)
-        temp_model = utility_function.init_model(temp_model)
+        temp_model = temp_model.init_model(model_param_dict)
         temp_model = temp_model.to(device)
         return temp_model
     else:

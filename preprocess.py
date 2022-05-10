@@ -241,3 +241,41 @@ class CAEProcessing():
                 temp_label.to(device),
                 train_mode]
 
+
+class DDDOMProcessing():
+    """"""
+    def __init__(self,
+                 train_mode,
+                 num_classes):
+        """"""
+        self.train_mode = train_mode
+        self.num_classes = num_classes
+        self.batch_size_flag = False
+        self.print_info_flag = False
+
+        self.batch_size = None
+
+    def pro(self,
+            train_data: dict,
+            train_mode,
+            device: torch.device):
+        """"""
+        temp_label_one_hot = None
+        temp_label_tensor = torch.clone(train_data['label'])
+        temp_label_long_tensor = temp_label_tensor.to(torch.long)
+        temp_label_long_tensor_device = temp_label_long_tensor.to(device)
+        temp_label_one_hot = F.one_hot(temp_label_long_tensor_device, self.num_classes)
+
+        # delete label
+        del train_data['label']
+
+        temp_data = {}
+        for key, val in train_data.items():
+            temp_val_unsq = val.unsqueeze(1)
+            temp_val_unsq_dev = temp_val_unsq.to(device)
+            temp_data[key] = torch.clone(temp_val_unsq_dev)
+
+
+        return [temp_data,
+                temp_label_one_hot.to(device),
+                train_mode]
