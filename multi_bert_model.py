@@ -619,6 +619,17 @@ class MyMultiBertModel(nn.Module):
         else:
             raise ValueError('Special Token Index Error')
 
+    @classmethod
+    def init_model(cls, init_dic: dict):
+        """"""
+        model = cls(**init_dic)
+
+        for p in model.parameters():
+            if p.dim() > 1:
+                torch.nn.init.xavier_uniform_(p)
+
+        return model
+
 
 if __name__ == '__main__':
     import multiprocessing

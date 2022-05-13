@@ -27,7 +27,7 @@ if __name__ == '__main__':
         m_device = init_train_module.init_device('gpu', 0)
         ###################################################################################################################
         # set the data set parameters
-        m_data_set_path = '.\\pik\\test_2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+        m_data_set_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
 
         m_train_mode = train_mode  # ('pretrain', 'train', 'test', 'finetune')
 
@@ -35,7 +35,7 @@ if __name__ == '__main__':
         # pre-train        1
         # other            3
         batch_size = [64, 100, 100]
-        m_num_epoch = 2
+        m_num_epoch = 512
 
         m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path,
                                                                      m_train_mode,
@@ -103,7 +103,7 @@ if __name__ == '__main__':
                                                 optimizer=m_opt,
                                                 scheduler=m_sch,
                                                 log_dir=m_log_dir,
-                                                num_class = 8,
+                                                num_class=8,
                                                 hyper_param=m_hyper_param)
 
         # train_mode:('pretrain', 'train')
@@ -113,7 +113,7 @@ if __name__ == '__main__':
     m_train_mode = 'train'  # ('pretrain', 'train', 'test', 'finetune')
 
     m_model_params = {
-        'cae_model_path': '.\\log\\test_CAE',
+        'cae_model_path': '.\\log\\CAE\\test_cae_model',
     }
 
     m_pro_func = preprocess.DDDOMProcessing

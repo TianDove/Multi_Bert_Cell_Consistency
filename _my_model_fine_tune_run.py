@@ -13,7 +13,7 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
     m_device = init_train_module.init_device('gpu', 0)
     ###################################################################################################################
     # set the data set parameters
-    m_data_set_path = '.\\pik\\22022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+    m_data_set_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
     m_rnd_token_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndtoken_32.pickle'
     m_rnd_para_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndpara.pickle'
 
@@ -85,7 +85,7 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
     }
     m_opt, m_sch = init_train_module.init_optimaizer_scheduler(m_init_model, m_optimizer_param, m_scheduler_param)
     ###################################################################################################################
-    m_model_step = 16
+    m_model_step = 8
     trials_pretrain = os.listdir(model_dir)
     for trial_pretrain_id, trial_pretrain_name in enumerate(trials_pretrain):
         temp_trial_pretrain_path = os.path.join(model_dir, trial_pretrain_name)
@@ -122,7 +122,7 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
         ###################################################################################################################
         m_trainer = init_train_module.Model_Run(device=m_device,
                                                 train_mode=m_train_mode,
-                                                num_epoch=128,
+                                                num_epoch=256,
                                                 data_loader=m_data_loader_dict,
                                                 preprocessor=m_prepro,
                                                 model=m_init_model,
@@ -176,14 +176,14 @@ if __name__ == '__main__':
     ####################################################################################################################
     writer_dir = '.\\log'
     # set model path for finetune
-    model_dir = '.\\log\\pretrain\\20220428-221236\\'
+    model_dir = '.\\log\\pretrain\\20220510-141907\\'
     ###################################################################################################################
 
     n_trials = 1
     # sampler = optuna.samplers.TPESampler(seed=42)
     # pruner = optuna.pruners.HyperbandPruner()
 
-    study = optuna.create_study(sampler=None, pruner=None, direction="minimize")
+    study = optuna.create_study(sampler=None, pruner=None, direction=None)
     study.optimize(lambda trial: fine_tune_func(trial, writer_dir, model_dir, data_time_str),
                    n_trials=n_trials, timeout=600, show_progress_bar=True)
     # get trials result
