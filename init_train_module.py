@@ -375,9 +375,9 @@ class Model_Run(object):
         if self.train_mode == 'pretrain':
             if not self.current_epoch_train_loss:
                 raise ValueError(f'{self.train_mode} Epoch Out: None or Empty Loss.')
-            return tmp_epoch_loss_accumulator[-1] / self.num_epoch
+            return tmp_epoch_loss_accumulator.data[-1] / self.num_epoch
         elif self.model.model_name == 'CAE':
-            return tmp_epoch_loss_accumulator[-1] / self.num_epoch
+            return tmp_epoch_loss_accumulator.data[-1] / self.num_epoch
         else:
             if not self.test_epoch_eval_dict:
                 raise ValueError(f'{self.train_mode} Epoch Out: None or Empty Eval Dict.')

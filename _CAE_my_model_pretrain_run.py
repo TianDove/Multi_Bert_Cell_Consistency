@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 import os
 
 import optuna
@@ -30,15 +32,13 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     #           len(batch_size)
     # pre-train        1
     # other            3
-    batch_size = [trial.suggest_categorical('bsz',  [2, 8, 32, 256, 512, 1024]),]
+    batch_size = [64,]
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################
     # set preprocessing
     m_prepro_param = {
         'num_classes': 8,
-        'token_tuple': (trial.suggest_categorical('tokenlen', [32, ]),
-                        False,
-                        1),
+        'token_tuple': (32, False, 1),
         'rnd_para_dict': m_rnd_para
     }
     m_prepro = preprocess.MyMultiBertModelProcessing(**m_prepro_param)
@@ -61,11 +61,10 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
         # 'n_layer': 3,
         # 'n_head': 4,
         # 'n_hid': 256
-        'n_layer': trial.suggest_categorical('nlayer', [3, ]),
-        'n_head': trial.suggest_categorical('nhead', [4, ]),
-        'n_hid': trial.suggest_categorical('nhid', [256, ])
+        'n_layer': 3,
+        'n_head': 4,
+        'n_hid': 256
     }
-
     m_init_model = init_train_module.init_model(m_model, m_model_param, m_device)
 
     # model parameter for baseline
@@ -95,14 +94,9 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     m_opt, m_sch = init_train_module.init_optimaizer_scheduler(m_init_model, m_optimizer_param, m_scheduler_param)
     ###################################################################################################################
     # train
-    m_bsz = batch_size[0]
-    m_tlen = m_prepro_param['token_tuple'][0]
-    m_nlayer = m_model_param['n_layer']
     m_nhead = m_model_param['n_head']
     m_nhid = m_model_param['n_hid']
-
-
-    m_tune_name = f'bsz-{m_bsz}_tlen-{m_tlen}_nlayer-{m_nlayer}_nhead-{m_nhead}_nhid-{m_nhid}'
+    m_tune_name = f'bsz-{batch_size[0]}_nhead-{m_nhead}_nhid{m_nhid}'
     m_log_dir = os.path.join(trial_root_path, m_tune_name)
     ###################################################################################################################
     # collect hyper parameter
@@ -129,7 +123,7 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     ###################################################################################################################
     m_trainer = init_train_module.Model_Run(device=m_device,
                                             train_mode=m_train_mode,
-                                            num_epoch=2,
+                                            num_epoch=512,
                                             data_loader=m_data_loader_dict,
                                             preprocessor=m_prepro,
                                             model=m_init_model,
@@ -141,7 +135,6 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
 
     # train_mode:('pretrain', 'train')
     metric = m_trainer.run()
-    return metric
 
 if __name__ == '__main__':
     import multiprocessing
@@ -154,8 +147,8 @@ if __name__ == '__main__':
     import pickle
     # ###################################################################################################################
     # # third party import
-    # import numpy as np
-    # import torch
+    import numpy as np
+    import torch
     # import torch.nn as nn
     # ###################################################################################################################
     # # app specific import
@@ -179,18 +172,16 @@ if __name__ == '__main__':
     n_trials = 16
 
     m_search_space = {
-        # 'bsz': [2, 8, 32, 256, 512, 1024],
-        'bsz': [2, 8, 32],
-        'tokenlen': [32, ],
-        'nlayer': [3, ],
-        'nhead': [4, ],
-        'nhid': [256, ],
+        'bsz': [],
+        'nhead': [],
+        'nhid': [],
+        'nlayer':[],
+        'itlen':[]
     }
     m_sampler = optuna.samplers.GridSampler(search_space=m_search_space)
     m_pruner = optuna.pruners.NopPruner()
-    m_direction = optuna.study.StudyDirection.MINIMIZE
 
-    study = optuna.create_study(sampler=m_sampler, pruner=m_pruner, direction=m_direction, study_name='Batch Size Study')
+    study = optuna.create_study(sampler=m_sampler, pruner=m_pruner, direction=None)
     study.optimize(lambda trial: pretrain_func(trial, writer_dir, data_time_str, m_train_mode),
                    n_trials=n_trials, timeout=600)
     # get trials result
