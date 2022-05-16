@@ -36,7 +36,7 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     # set preprocessing
     m_prepro_param = {
         'num_classes': 8,
-        'token_tuple': (trial.suggest_categorical('tokenlen', [32, ]),
+        'token_tuple': (trial.suggest_categorical('tokenlen', [32, 64, 128, 256, 512]),
                         False,
                         1),
         'rnd_para_dict': m_rnd_para
@@ -61,9 +61,9 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
         # 'n_layer': 3,
         # 'n_head': 4,
         # 'n_hid': 256
-        'n_layer': trial.suggest_categorical('nlayer', [3, ]),
-        'n_head': trial.suggest_categorical('nhead', [4, ]),
-        'n_hid': trial.suggest_categorical('nhid', [256, ])
+        'n_layer': trial.suggest_categorical('nlayer', [1, 2, 3, 6, 12]),
+        'n_head': trial.suggest_categorical('nhead', [2, 4, 8, 16, 32]),
+        'n_hid': trial.suggest_categorical('nhid', [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048])
     }
 
     m_init_model = init_train_module.init_model(m_model, m_model_param, m_device)
@@ -181,7 +181,7 @@ if __name__ == '__main__':
     m_search_space = {
         # 'bsz': [2, 8, 32, 256, 512, 1024],
         'bsz': [2, 8, 32],
-        'tokenlen': [32, ],
+        'tokenlen': [64, ],
         'nlayer': [3, ],
         'nhead': [4, ],
         'nhid': [256, ],
