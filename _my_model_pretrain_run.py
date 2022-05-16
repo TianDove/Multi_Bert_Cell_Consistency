@@ -9,6 +9,7 @@ import preprocess
 import multi_bert_model
 import init_train_module
 
+
 def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     ###################################################################################################################
 
@@ -16,7 +17,7 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     m_device = init_train_module.init_device('gpu', 0)
     ###################################################################################################################
     # set the data set parameters
-    m_data_set_path = '.\\pik\\test_2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+    m_data_set_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
     m_rnd_token_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndtoken_32.pickle'
     m_rnd_para_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndpara.pickle'
 
@@ -30,6 +31,7 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     #           len(batch_size)
     # pre-train        1
     # other            3
+    m_epoch = 512
     batch_size = [trial.suggest_categorical('bsz',  [2, 8, 32, 256, 512, 1024]),]
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################
@@ -101,7 +103,6 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     m_nhead = m_model_param['n_head']
     m_nhid = m_model_param['n_hid']
 
-
     m_tune_name = f'bsz-{m_bsz}_tlen-{m_tlen}_nlayer-{m_nlayer}_nhead-{m_nhead}_nhid-{m_nhid}'
     m_log_dir = os.path.join(trial_root_path, m_tune_name)
     ###################################################################################################################
@@ -129,7 +130,7 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     ###################################################################################################################
     m_trainer = init_train_module.Model_Run(device=m_device,
                                             train_mode=m_train_mode,
-                                            num_epoch=2,
+                                            num_epoch=m_epoch,
                                             data_loader=m_data_loader_dict,
                                             preprocessor=m_prepro,
                                             model=m_init_model,
@@ -142,6 +143,7 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     # train_mode:('pretrain', 'train')
     metric = m_trainer.run()
     return metric
+
 
 if __name__ == '__main__':
     import multiprocessing
@@ -176,15 +178,15 @@ if __name__ == '__main__':
     ####################################################################################################################
     writer_dir = f'.\\log\\{m_train_mode}\\{data_time_str}'
 
-    n_trials = 16
+    n_trials = 1
 
     m_search_space = {
         # 'bsz': [2, 8, 32, 256, 512, 1024],
-        'bsz': [2, 8, 32],
-        'tokenlen': [64, ],
-        'nlayer': [3, ],
-        'nhead': [4, ],
-        'nhid': [256, ],
+        'bsz': [1024, ],  # [2, 8, 32, 256, 512, 1024]
+        'tokenlen': [64, ],  # [32, 64, 128, 256, 512]
+        'nlayer': [3, ],  # [1, 2, 3, 6, 12]
+        'nhead': [4, ],  # [2, 4, 8, 16, 32]
+        'nhid': [256, ],  # [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
     }
     m_sampler = optuna.samplers.GridSampler(search_space=m_search_space)
     m_pruner = optuna.pruners.NopPruner()
@@ -192,7 +194,7 @@ if __name__ == '__main__':
 
     study = optuna.create_study(sampler=m_sampler, pruner=m_pruner, direction=m_direction, study_name='Batch Size Study')
     study.optimize(lambda trial: pretrain_func(trial, writer_dir, data_time_str, m_train_mode),
-                   n_trials=n_trials, timeout=600)
+                   n_trials=n_trials, timeout=None, gc_after_trial=True)
     # get trials result
     exp_res = study.trials_dataframe()
     exp_res.to_csv(os.path.join(writer_dir, f'{data_time_str}_Trials_DataFrame.csv'))
