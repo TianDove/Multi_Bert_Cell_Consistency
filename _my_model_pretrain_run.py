@@ -17,12 +17,12 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     m_device = init_train_module.init_device('gpu', 0)
     ###################################################################################################################
     # set the data set parameters
-    m_data_set_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
-    m_rnd_token_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndtoken_32.pickle'
-    m_rnd_para_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndpara.pickle'
+    m_data_set_path = '.\\pik\\test_2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
 
-    m_rnd_token = init_train_module.rnd_token_loader(m_rnd_token_path)
-    m_rnd_para = init_train_module.rnd_para_loader(m_rnd_para_path)
+    in_token_len = trial.suggest_int('tokenlen', 32, 128)
+    m_rnd_token, m_rnd_para = init_train_module.get_rnd_token_para(m_data_set_path,
+                                                                   in_token_len,
+                                                                   m_device)
 
     m_train_mode = train_mode  # ('pretrain', 'train', 'test', 'finetune')
 
@@ -31,16 +31,14 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     #           len(batch_size)
     # pre-train        1
     # other            3
-    m_epoch = 512
-    batch_size = [trial.suggest_categorical('bsz',  [2, 8, 32, 256, 512, 1024]),]
+    m_epoch = 3
+    batch_size = [trial.suggest_int('bsz', 2, 2048), ]
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################
     # set preprocessing
     m_prepro_param = {
         'num_classes': 8,
-        'token_tuple': (trial.suggest_categorical('tokenlen', [32, 64, 128, 256, 512]),
-                        False,
-                        1),
+        'token_tuple': (in_token_len, False, 1),
         'rnd_para_dict': m_rnd_para
     }
     m_prepro = preprocess.MyMultiBertModelProcessing(**m_prepro_param)
@@ -58,14 +56,13 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
         'token_len': m_prepro_param['token_tuple'][0],
         'rnd_token': m_rnd_token,
         'max_num_seg': 5,
-        'max_num_token': 100,
-        'embedding_dim': 16,
+        'max_num_token': 1000,
         # 'n_layer': 3,
         # 'n_head': 4,
         # 'n_hid': 256
-        'n_layer': trial.suggest_categorical('nlayer', [1, 2, 3, 6, 12]),
-        'n_head': trial.suggest_categorical('nhead', [2, 4, 8, 16, 32]),
-        'n_hid': trial.suggest_categorical('nhid', [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048])
+        'n_layer': trial.suggest_int('nlayer', 1, 24),
+        'n_head': trial.suggest_int('nhead', 1, 32),
+        'n_hid': trial.suggest_int('nhid', 2, 2048),
     }
 
     m_init_model = init_train_module.init_model(m_model, m_model_param, m_device)
@@ -110,13 +107,10 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     m_hyper_param = {
         'train_mode': m_train_mode,
         'data_set': m_data_set_path,
-        'rnd_token': m_rnd_token_path,
-        'rnd_para': m_rnd_para_path,
         'batch_size': batch_size[0],
         'token_len': m_prepro_param['token_tuple'][0],
         'model_name': m_init_model.model_name,
         'max_num_seg': m_model_param['max_num_seg'],
-        'embedding_dim': m_model_param['embedding_dim'],
         'n_layer': m_model_param['n_layer'],
         'n_head': m_model_param['n_head'],
         'n_hid': m_model_param['n_hid'],
@@ -178,15 +172,15 @@ if __name__ == '__main__':
     ####################################################################################################################
     writer_dir = f'.\\log\\{m_train_mode}\\{data_time_str}'
 
-    n_trials = 1
+    n_trials = 8
 
     m_search_space = {
         # 'bsz': [2, 8, 32, 256, 512, 1024],
-        'bsz': [1024, ],  # [2, 8, 32, 256, 512, 1024]
-        'tokenlen': [64, ],  # [32, 64, 128, 256, 512]
-        'nlayer': [3, ],  # [1, 2, 3, 6, 12]
-        'nhead': [4, ],  # [2, 4, 8, 16, 32]
-        'nhid': [256, ],  # [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
+        'bsz': [16, 32, 64, ],  # 2 - 2048
+        'tokenlen': [32, ],  # 32 - 128
+        'nlayer': [3, ],  # 1 - 24
+        'nhead': [4, ],  # 1 - 32
+        'nhid': [256, ],  # 2 - 2048
     }
     m_sampler = optuna.samplers.GridSampler(search_space=m_search_space)
     m_pruner = optuna.pruners.NopPruner()

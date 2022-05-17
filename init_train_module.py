@@ -3,6 +3,7 @@
 
 import os
 from datetime import datetime
+from tqdm import tqdm
 
 import numpy as np
 import torch
@@ -14,6 +15,63 @@ import sklearn.metrics as skm
 import optim_sche
 import utility_function
 import dataset_and_dataloader
+
+
+def get_rnd_token_para(data_path, in_t_len, device):
+    """"""
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(f'Data File: {data_path}  No Found')
+
+    if in_t_len <= 0:
+        raise ValueError('Input Token Len Must Greater than Zero')
+
+    temp_data_set_dict = utility_function.read_pickle_file(data_path)
+
+    cell_dict = {
+        **temp_data_set_dict['pretrain'],
+        **temp_data_set_dict['train'],
+        **temp_data_set_dict['val'],
+        **temp_data_set_dict['test'],
+    }
+
+    rnd_token_list = []
+    rnd_para_list_dict = {
+        'ch1v': [],
+        'ch2v': [],
+        'dcv': [],
+        'ch3v': [],
+        'ch3c': [],
+    }
+
+    with tqdm(total=len(cell_dict)) as bar:
+        bar.set_description('Set rnd para and rnd token')
+        for cell_name, cell_data in cell_dict.items():
+            for para_name, para_data in cell_data.items():
+                if para_name != 'label':
+                    # get rnd para
+                    temp_tensor_para_data = torch.from_numpy(para_data).to(torch.float32).unsqueeze(0)
+                    rnd_para_list_dict[para_name].append(temp_tensor_para_data)
+
+                    # get rnd token
+                    temp_tensor_len = temp_tensor_para_data.shape[-1]
+                    r = temp_tensor_len % in_t_len
+                    if r != 0:
+                        num_of_padding = in_t_len - r
+                        pad_tensor = torch.zeros((1, num_of_padding), dtype=torch.float32)
+                        temp_tensor_para_data = torch.cat((temp_tensor_para_data, pad_tensor), dim=-1)
+                    tmp_rnd_token = temp_tensor_para_data.reshape(-1, in_t_len)
+                    rnd_token_list.append(tmp_rnd_token)
+            # update bar
+            bar.update()
+
+    rnd_token = torch.cat(rnd_token_list, dim=0)
+    rnd_para = {}
+    for key, val in rnd_para_list_dict.items():
+        tmp_para_tensor = torch.cat(val, dim=0)
+        rnd_para[key] = tmp_para_tensor
+
+    return rnd_token, rnd_para
+
 
 
 def init_device(device_name: str, gpu_idx=None):

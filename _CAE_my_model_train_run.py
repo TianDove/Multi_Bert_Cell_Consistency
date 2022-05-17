@@ -1,17 +1,16 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 import os
 
 import optuna
 import torch.nn as nn
 
 import preprocess
-import multi_bert_model
+import model_define
 import init_train_module
 
-def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
+
+def train_func(trial, trial_root_path, experiment_start_time, train_mode):
     ###################################################################################################################
 
     # set device
@@ -19,11 +18,8 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     ###################################################################################################################
     # set the data set parameters
     m_data_set_path = '.\\pik\\test_2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
-    m_rnd_token_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndtoken_32.pickle'
-    m_rnd_para_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndpara.pickle'
 
-    m_rnd_token = init_train_module.rnd_token_loader(m_rnd_token_path)
-    m_rnd_para = init_train_module.rnd_para_loader(m_rnd_para_path)
+    in_token_len = trial.suggest_int('tokenlen', 32, 128)
 
     m_train_mode = train_mode  # ('pretrain', 'train', 'test', 'finetune')
 
@@ -32,16 +28,16 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     #           len(batch_size)
     # pre-train        1
     # other            3
-    batch_size = [64,]
+    m_epoch = 3
+    batch_size = [trial.suggest_int('bsz', 2, 2048), 100, 100]
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################
     # set preprocessing
     m_prepro_param = {
+        'train_mode': m_train_mode,
         'num_classes': 8,
-        'token_tuple': (32, False, 1),
-        'rnd_para_dict': m_rnd_para
     }
-    m_prepro = preprocess.MyMultiBertModelProcessing(**m_prepro_param)
+    m_prepro = preprocess.DDDOMProcessing(**m_prepro_param)
 
     # preprocess parameter for baseline
     # m_preprocess_param = {
@@ -50,21 +46,21 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     # m_preprocessor = preprocess.BaseProcessing(**m_preprocess_param)
     ###################################################################################################################
     # model parameter for MultiBert
-    m_model = multi_bert_model.MyMultiBertModel
+    m_model = model_define.CAEMultiBert
     m_model_param = {
+        'cae_model_path': '.\\log\\CAE\\test_cae_model',
         'device': m_device,
-        'token_len': m_prepro_param['token_tuple'][0],
-        'rnd_token': m_rnd_token,
+        'token_len': in_token_len,
         'max_num_seg': 5,
-        'max_num_token': 100,
-        'embedding_dim': 16,
+        'max_num_token': 1000,
         # 'n_layer': 3,
         # 'n_head': 4,
         # 'n_hid': 256
-        'n_layer': 3,
-        'n_head': 4,
-        'n_hid': 256
+        'n_layer': trial.suggest_int('nlayer', 1, 24),
+        'n_head': trial.suggest_int('nhead', 1, 32),
+        'n_hid': trial.suggest_int('nhid', 2, 2048),
     }
+
     m_init_model = init_train_module.init_model(m_model, m_model_param, m_device)
 
     # model parameter for baseline
@@ -94,36 +90,35 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     m_opt, m_sch = init_train_module.init_optimaizer_scheduler(m_init_model, m_optimizer_param, m_scheduler_param)
     ###################################################################################################################
     # train
+    m_bsz = batch_size[0]
+    m_tlen = in_token_len
+    m_nlayer = m_model_param['n_layer']
     m_nhead = m_model_param['n_head']
     m_nhid = m_model_param['n_hid']
-    m_tune_name = f'bsz-{batch_size[0]}_nhead-{m_nhead}_nhid{m_nhid}'
+
+    m_tune_name = f'bsz-{m_bsz}_tlen-{m_tlen}_nlayer-{m_nlayer}_nhead-{m_nhead}_nhid-{m_nhid}'
     m_log_dir = os.path.join(trial_root_path, m_tune_name)
     ###################################################################################################################
     # collect hyper parameter
     m_hyper_param = {
         'train_mode': m_train_mode,
         'data_set': m_data_set_path,
-        'rnd_token': m_rnd_token_path,
-        'rnd_para': m_rnd_para_path,
         'batch_size': batch_size[0],
-        'token_len': m_prepro_param['token_tuple'][0],
+        'token_len': in_token_len,
         'model_name': m_init_model.model_name,
         'max_num_seg': m_model_param['max_num_seg'],
-        'embedding_dim': m_model_param['embedding_dim'],
         'n_layer': m_model_param['n_layer'],
         'n_head': m_model_param['n_head'],
         'n_hid': m_model_param['n_hid'],
     }
     ###################################################################################################################
     # set loss function
-    NPP_Loss_fn = nn.CrossEntropyLoss()
-    MTP_Loss_fn = nn.MSELoss()
-
-    m_loss_fn_list = [NPP_Loss_fn, MTP_Loss_fn]
+    Down_Loss_fn = nn.CrossEntropyLoss()
+    m_loss_fn_list = [Down_Loss_fn, ]
     ###################################################################################################################
     m_trainer = init_train_module.Model_Run(device=m_device,
                                             train_mode=m_train_mode,
-                                            num_epoch=512,
+                                            num_epoch=m_epoch,
                                             data_loader=m_data_loader_dict,
                                             preprocessor=m_prepro,
                                             model=m_init_model,
@@ -131,10 +126,13 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
                                             optimizer=m_opt,
                                             scheduler=m_sch,
                                             log_dir=m_log_dir,
-                                            hyper_param=m_hyper_param)
+                                            hyper_param=m_hyper_param,
+                                            num_class=8)
 
     # train_mode:('pretrain', 'train')
     metric = m_trainer.run()
+    return metric
+
 
 if __name__ == '__main__':
     import multiprocessing
@@ -147,8 +145,8 @@ if __name__ == '__main__':
     import pickle
     # ###################################################################################################################
     # # third party import
-    import numpy as np
-    import torch
+    # import numpy as np
+    # import torch
     # import torch.nn as nn
     # ###################################################################################################################
     # # app specific import
@@ -161,7 +159,7 @@ if __name__ == '__main__':
     # ###################################################################################################################
     # set the random seed
     data_time_str = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    m_train_mode = 'pretrain' # ('pretrain', 'train', 'test', 'finetune')
+    m_train_mode = 'train' # ('pretrain', 'train', 'test', 'finetune')
     # RANDOM_SEED = 42
     # np.random.seed(RANDOM_SEED)
     # torch.manual_seed(RANDOM_SEED)
@@ -169,21 +167,23 @@ if __name__ == '__main__':
     ####################################################################################################################
     writer_dir = f'.\\log\\{m_train_mode}\\{data_time_str}'
 
-    n_trials = 16
+    n_trials = 8
 
     m_search_space = {
-        'bsz': [],
-        'nhead': [],
-        'nhid': [],
-        'nlayer':[],
-        'itlen':[]
+        # 'bsz': [2, 8, 32, 256, 512, 1024],
+        'bsz': [64, ],  # 2 - 2048
+        'tokenlen': [32, ],  # 32 - 128
+        'nlayer': [3, ],  # 1 - 24
+        'nhead': [5, ],  # 1 - 32
+        'nhid': [256, ],  # 2 - 2048
     }
     m_sampler = optuna.samplers.GridSampler(search_space=m_search_space)
     m_pruner = optuna.pruners.NopPruner()
+    m_direction = optuna.study.StudyDirection.MINIMIZE
 
-    study = optuna.create_study(sampler=m_sampler, pruner=m_pruner, direction=None)
-    study.optimize(lambda trial: pretrain_func(trial, writer_dir, data_time_str, m_train_mode),
-                   n_trials=n_trials, timeout=600)
+    study = optuna.create_study(sampler=m_sampler, pruner=m_pruner, direction=m_direction)
+    study.optimize(lambda trial: train_func(trial, writer_dir, data_time_str, m_train_mode),
+                   n_trials=n_trials, timeout=None, gc_after_trial=True)
     # get trials result
     exp_res = study.trials_dataframe()
     exp_res.to_csv(os.path.join(writer_dir, f'{data_time_str}_Trials_DataFrame.csv'))

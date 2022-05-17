@@ -1,11 +1,15 @@
 """"""
 #
-
+import os
 #
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
+
+import model_define
+import dddom_model
+import multi_bert_model
 
 def cal_conv1d_output_size(L_in, k_sz, pad=0, dilation=1, stride=1):
     """"""
@@ -476,3 +480,148 @@ class BaseLine_MCNN(nn.Module):
         model = cls(**init_dic)
         return model
 
+
+class CAEMultiBert(nn.Module):
+    """"""
+    def __init__(self,
+                 cae_model_path,
+                 device,
+                 token_len,
+                 max_num_seg,
+                 max_num_token,
+                 n_layer,
+                 n_head,
+                 n_hid,
+                 num_cls: int = 8,
+                 num_paras: int = 5,
+                 cae_hid: int = 10,
+                 loss_func=None,
+                 dropout: float = 0.1):
+        """"""
+        super(CAEMultiBert, self).__init__()
+        self.model_name = self.__class__.__name__
+        self.model_batch_out = None
+        self.model_batch_loss = None
+
+        self.cae_model_path = cae_model_path
+        self.device = device
+        self.token_len = token_len
+        self.max_num_seg = max_num_seg
+        self.max_num_token = max_num_token
+        self.n_layer = n_layer
+        self.n_head = n_head
+        self.n_hid = n_hid
+        self.num_cls = num_cls
+        self.num_paras = num_paras
+        self.cae_hid = cae_hid
+        self.loss_func = loss_func
+        self.dropout = dropout
+
+        self.cae_dict = {
+            'ch1v': dddom_model.CAE('ch', 256),
+            'ch2v': dddom_model.CAE('ch', 256),
+            'dcv': dddom_model.CAE('ch', 256),
+            'ch3v': dddom_model.CAE('ch', 256),
+            'ch3c': dddom_model.CAE('ch', 256),
+        }
+
+        if os.path.exists(self.cae_model_path):
+            self.load_multi_cae()
+        else:
+            raise FileNotFoundError('CAE Model Path Not Exist.')
+
+        # Transformer Encoder
+        self.encoder_blk = nn.Sequential()
+        for i in range(n_layer):
+            self.encoder_blk.add_module(f'encoder{i}', nn.TransformerEncoderLayer(d_model=self.cae_hid,
+                                                                                  nhead=self.n_head,
+                                                                                  dim_feedforward=self.n_hid,
+                                                                                  dropout=self.dropout,
+                                                                                  activation='gelu',
+                                                                                  batch_first=True))
+
+        # DownStream Head
+        self.downstream_head = multi_bert_model.MyDownStreamHead(num_class=8,
+                                                                num_token=self.num_paras,
+                                                                embedding_token_dim=self.cae_hid,
+                                                                dropout=self.dropout)
+
+    def forward(self, x, y=None, train_mode:str=None):
+        """"""
+
+        para_hid = []
+        for key, temp_cae in self.cae_dict.items():
+            temp_para_data = x[key]
+            temp_hid, _ = temp_cae(temp_para_data, y, train_mode='test')
+            temp_hid_unsq = temp_hid.unsqueeze(1)
+            para_hid.append(temp_hid_unsq)
+        para_hid_tensor = torch.cat(para_hid, dim=1)
+
+        res = self.encoder_blk(para_hid_tensor)
+        res = self.downstream_head(res)
+
+        self.model_batch_out = res
+
+        if (y is not None) and (self.loss_func is not None):
+            ls = self.loss_func(res, y)
+            self.model_batch_loss = ls
+            return ls
+        else:
+            if y is not None:
+                return (res, y)
+            else:
+                raise ValueError('Label Data is Empty or None.')
+
+    def load_multi_cae(self):
+        """"""
+        cae_model_list = os.listdir(self.cae_model_path)
+
+        for cae_file_name in cae_model_list:
+            temp_cae_model_path = os.path.join(self.cae_model_path, cae_file_name)
+
+            if os.path.exists(temp_cae_model_path):
+                temp_model_dict = torch.load(temp_cae_model_path)
+                temp_model = temp_model_dict['model']
+            else:
+                raise FileNotFoundError(f'File No Find: {temp_cae_model_path}')
+
+            temp_file_name, temp_file_type = os.path.splitext(cae_file_name)
+            temp_file_name_list = temp_file_name.split('_')
+            temp_model_para = temp_file_name_list[-1]
+
+            self.cae_dict[temp_model_para].set_model_attr(temp_model)
+            for (name, param) in self.cae_dict[temp_model_para].named_parameters():
+                param.requires_grad = False
+
+    def get_out(self):
+        """"""
+        return self.model_batch_out
+
+
+    def get_loss(self):
+        """"""
+        return self.model_batch_loss
+
+    def get_save_model(self):
+        """"""
+        attr_need = self.__dict__
+        save_model_dict = {}
+        for attr in attr_need:
+            save_model_dict[attr] = getattr(self, attr)
+        return save_model_dict
+
+    def set_model_attr(self, model_attr_dict):
+        """"""
+        for attr, val in model_attr_dict.items():
+            setattr(self, attr, val)
+
+    @classmethod
+    def init_model(cls, init_dic: dict):
+        """"""
+        model = cls(**init_dic)
+
+        for p in model.parameters():
+            if p.dim() > 1:
+                torch.nn.init.xavier_uniform_(p)
+
+        return model

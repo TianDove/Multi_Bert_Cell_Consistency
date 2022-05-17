@@ -13,79 +13,12 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
     m_device = init_train_module.init_device('gpu', 0)
     ###################################################################################################################
     # set the data set parameters
-    m_data_set_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
-    m_rnd_token_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndtoken_32.pickle'
-    m_rnd_para_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_rndpara.pickle'
-
-    m_rnd_token = init_train_module.rnd_token_loader(m_rnd_token_path)
-    m_rnd_para = init_train_module.rnd_para_loader(m_rnd_para_path)
-
+    m_data_set_path = '.\\pik\\test_2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
     m_train_mode = 'finetune'  # ('pretrain', 'train', 'test', 'finetune')
-
     # trial number
     current_trial_id = f'{m_train_mode}_trial_{trial.number}'
-    #           len(batch_size)
-    # pre-train        1
-    # other            3
-    batch_size = [64, 100, 100]
-    m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################
-    # set preprocessing
-    m_prepro_param = {
-        'num_classes': 8,
-        'token_tuple': (32, False, 1),
-        'rnd_para_dict': m_rnd_para
-    }
-    m_prepro = preprocess.MyMultiBertModelProcessing(**m_prepro_param)
-
-    # preprocess parameter for baseline
-    # m_preprocess_param = {
-    #     'num_classes': 8,
-    # }
-    # m_preprocessor = preprocess.BaseProcessing(**m_preprocess_param)
-    ###################################################################################################################
-    # model parameter for MultiBert
-    m_model = multi_bert_model.MyMultiBertModel
-    m_model_param = {
-        'device': m_device,
-        'token_len': m_prepro_param['token_tuple'][0],
-        'rnd_token': m_rnd_token,
-        'max_num_seg': 1,
-        'max_num_token': 1,
-        'embedding_dim': 4,
-        'n_layer': 1,
-        'n_head': 2,
-        'n_hid': 16
-    }
-    m_init_model = init_train_module.init_model(m_model, m_model_param, m_device)
-
-    # model parameter for baseline
-    # m_model = model_define.BaseLine_MLP
-    # m_model_param = {
-    #     'in_dim': 1021,
-    #     'num_cls': 8,
-    #     'loss_func': nn.CrossEntropyLoss(),
-    # }
-    ###################################################################################################################
-    # optimizer and scheduler set up
-    m_optimizer_param = {
-        'optimizer_name': 'Adam',
-        'lr': 0.0001,
-        'betas': (0.9, 0.98),
-        'eps': 1e-9,
-        'weight_decay': 0,
-        'amsgrad': False,
-    }
-    m_scheduler_param = {
-        'scheduler name': 'StepLR',
-        'step_size': 16,
-        'gamma': 0.95,
-        'last_epoch': -1,
-        'verbose': False
-    }
-    m_opt, m_sch = init_train_module.init_optimaizer_scheduler(m_init_model, m_optimizer_param, m_scheduler_param)
-    ###################################################################################################################
-    m_model_step = 8
+    m_model_step = 1
     trials_pretrain = os.listdir(model_dir)
     for trial_pretrain_id, trial_pretrain_name in enumerate(trials_pretrain):
         temp_trial_pretrain_path = os.path.join(model_dir, trial_pretrain_name)
@@ -101,8 +34,16 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
 
         current_pretrain_model_name = temp_pretrain_model_list[0]
         ################################################################################################################
+        # parameter analysis
+        param_list = trial_pretrain_name.split('_')
+        m_bsz = int(param_list[0].split('-')[-1])
+        m_tlen = int(param_list[1].split('-')[-1])
+        m_nlayer = int(param_list[2].split('-')[-1])
+        m_nhead = int(param_list[3].split('-')[-1])
+        m_nhid = int(param_list[4].split('-')[-1])
+        ################################################################################################################
         pretrain_experiment_time = model_dir.split('\\')[-2]
-        
+
         # train
         m_log_dir = os.path.join(trial_root_path,
                                  m_train_mode,
@@ -112,7 +53,73 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
                                  f'{trial_pretrain_name}_'
                                  f'{current_pretrain_model_name}')
         m_model_dir = os.path.join(temp_trial_pretrain_path, current_pretrain_model_name, 'models')
+    ###################################################################################################################
+        in_token_len = m_tlen
+        m_rnd_token, m_rnd_para = init_train_module.get_rnd_token_para(m_data_set_path,
+                                                                       in_token_len,
+                                                                       m_device)
+
+
+        #           len(batch_size)
+        # pre-train        1
+        # other            3
+        batch_size = [m_bsz, 100, 100]
+        m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
         ###################################################################################################################
+        # set preprocessing
+        m_prepro_param = {
+            'num_classes': 8,
+            'token_tuple': (in_token_len, False, 1),
+            'rnd_para_dict': m_rnd_para
+        }
+        m_prepro = preprocess.MyMultiBertModelProcessing(**m_prepro_param)
+
+        # preprocess parameter for baseline
+        # m_preprocess_param = {
+        #     'num_classes': 8,
+        # }
+        # m_preprocessor = preprocess.BaseProcessing(**m_preprocess_param)
+        ###################################################################################################################
+        # model parameter for MultiBert
+        m_model = multi_bert_model.MyMultiBertModel
+        m_model_param = {
+            'device': m_device,
+            'token_len': m_prepro_param['token_tuple'][0],
+            'rnd_token': m_rnd_token,
+            'max_num_seg': 1,
+            'max_num_token': 1,
+            'n_layer': m_nlayer,
+            'n_head': m_nhead,
+            'n_hid': m_nhid
+        }
+        m_init_model = init_train_module.init_model(m_model, m_model_param, m_device)
+
+        # model parameter for baseline
+        # m_model = model_define.BaseLine_MLP
+        # m_model_param = {
+        #     'in_dim': 1021,
+        #     'num_cls': 8,
+        #     'loss_func': nn.CrossEntropyLoss(),
+        # }
+        ###################################################################################################################
+        # optimizer and scheduler set up
+        m_optimizer_param = {
+            'optimizer_name': 'Adam',
+            'lr': 0.0001,
+            'betas': (0.9, 0.98),
+            'eps': 1e-9,
+            'weight_decay': 0,
+            'amsgrad': False,
+        }
+        m_scheduler_param = {
+            'scheduler name': 'StepLR',
+            'step_size': 16,
+            'gamma': 0.95,
+            'last_epoch': -1,
+            'verbose': False
+        }
+        m_opt, m_sch = init_train_module.init_optimaizer_scheduler(m_init_model, m_optimizer_param, m_scheduler_param)
+    ###################################################################################################################
         # set loss function
         down_Loss_fn = nn.CrossEntropyLoss()
         m_num_class = 8
@@ -122,7 +129,7 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
         ###################################################################################################################
         m_trainer = init_train_module.Model_Run(device=m_device,
                                                 train_mode=m_train_mode,
-                                                num_epoch=256,
+                                                num_epoch=2,
                                                 data_loader=m_data_loader_dict,
                                                 preprocessor=m_prepro,
                                                 model=m_init_model,
@@ -176,16 +183,17 @@ if __name__ == '__main__':
     ####################################################################################################################
     writer_dir = '.\\log'
     # set model path for finetune
-    model_dir = '.\\log\\pretrain\\20220510-141907\\'
+    model_dir = '.\\log\\pretrain\\20220517-084346\\'
     ###################################################################################################################
 
     n_trials = 1
-    # sampler = optuna.samplers.TPESampler(seed=42)
-    # pruner = optuna.pruners.HyperbandPruner()
+    m_sampler = optuna.samplers.RandomSampler()
+    m_pruner = optuna.pruners.NopPruner()
+    m_direction = optuna.study.StudyDirection.MINIMIZE
 
-    study = optuna.create_study(sampler=None, pruner=None, direction=None)
+    study = optuna.create_study(sampler=m_sampler, pruner=m_pruner, direction=m_direction)
     study.optimize(lambda trial: fine_tune_func(trial, writer_dir, model_dir, data_time_str),
-                   n_trials=n_trials, timeout=600, show_progress_bar=True)
+                   n_trials=n_trials, timeout=None, gc_after_trial=True)
     # get trials result
     exp_res = study.trials_dataframe()
     exp_res.to_csv(os.path.join(writer_dir, f'{data_time_str}_Trials_DataFrame.csv'))

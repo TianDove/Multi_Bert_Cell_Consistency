@@ -151,9 +151,17 @@ class CovTokenEmbedding(nn.Module):
         tmp_out = None
         for i, ksz_stride in enumerate(zip(self.ksz, self.stride)):
             tmp_out = ((tmp_in - ksz_stride[0]) / ksz_stride[-1]) + 1
+            tmp_out = math.floor(tmp_out)
             tmp_in = tmp_out
-        tmp_out_sz = (1, 1, tmp_out)
+        tmp_out_sz = int(tmp_out)
         return tmp_out_sz
+
+    def get_out_sz(self):
+        """"""
+        if self.out_sz:
+            return self.out_sz
+        else:
+            raise ValueError ('Conv Embedding out Size is None')
 
     def forward(self, in_data):
         """
@@ -179,7 +187,6 @@ class MyMultiBertModel(nn.Module):
                  rnd_token: torch.tensor,
                  max_num_seg: int,
                  max_num_token: int,
-                 embedding_dim: int,
                  n_layer:int,
                  n_head: int,
                  n_hid: int,
@@ -193,6 +200,7 @@ class MyMultiBertModel(nn.Module):
         self.rnd_token = rnd_token
         self.max_num_seg = max_num_seg
         self.max_num_token = max_num_token
+        self.embedding_dim = None
         self.n_layer = n_layer
         self.n_head = n_head
         self.n_hid = n_hid
@@ -200,7 +208,6 @@ class MyMultiBertModel(nn.Module):
         self.num_token = num_token
 
         # scalar
-        self.scale = math.sqrt(embedding_dim)
         self.model_name = self.__class__.__name__
         self.model_batch_out = None
         self.model_batch_loss = None
@@ -223,43 +230,47 @@ class MyMultiBertModel(nn.Module):
                                                     max_norm=3)
 
         # Token Embedding
-        self.token_embedding = CovTokenEmbedding(self.token_len, dropout=dropout)
+        self.token_embedding = CovTokenEmbedding(self.token_len, dropout=self.dropout)
+
+        self.embedding_dim = self.token_embedding.get_out_sz()
+
+        self.scale = math.sqrt(self.embedding_dim)
 
         # Segment Embedding
-        self.segment_embedding = nn.Embedding(num_embeddings=max_num_seg,
-                                              embedding_dim=embedding_dim,
+        self.segment_embedding = nn.Embedding(num_embeddings=self.max_num_seg,
+                                              embedding_dim=self.embedding_dim,
                                               max_norm=3)
 
         # Positional Embedding
-        self.position_embedding = nn.Parameter(torch.randn(1, max_num_token, embedding_dim))  # (0, 1)
+        self.position_embedding = nn.Parameter(torch.randn(1, self.max_num_token, self.embedding_dim))  # (0, 1)
 
         # Transformer Encoder
         self.encoder_blk = nn.Sequential()
         for i in range(n_layer):
-            self.encoder_blk.add_module(f'encoder{i}', nn.TransformerEncoderLayer(d_model=embedding_dim,
-                                                                                  nhead=n_head,
-                                                                                  dim_feedforward=n_hid,
+            self.encoder_blk.add_module(f'encoder{i}', nn.TransformerEncoderLayer(d_model=self.embedding_dim,
+                                                                                  nhead=self.n_head,
+                                                                                  dim_feedforward=self.n_hid,
                                                                                   dropout=self.dropout,
                                                                                   activation='gelu',
                                                                                   batch_first=True))
 
         # Mask Token Prediction Head
         self.mask_token_pre_head = MaskTokenPred(in_len=self.token_len,
-                                                 embedding_token_dim=embedding_dim,
-                                                 dropout=dropout)
+                                                 embedding_token_dim=self.embedding_dim,
+                                                 dropout=self.dropout)
         # self.mask_token_pred_loss = nn.MSELoss()
 
         # Next Parameter Prediction Head
-        self.next_para_pre_head =  NextParaPred(embedding_token_dim=embedding_dim,
-                                                dropout=dropout)
+        self.next_para_pre_head =  NextParaPred(embedding_token_dim=self.embedding_dim,
+                                                dropout=self.dropout)
 
         # self.next_para_pre_loss = nn.CrossEntropyLoss()
 
         # DownStream Head
         self.downstream_head = MyDownStreamHead(num_class=8,
                                                 num_token=self.num_token,
-                                                embedding_token_dim=embedding_dim,
-                                                dropout=dropout)
+                                                embedding_token_dim=self.embedding_dim,
+                                                dropout=self.dropout)
 
         # self.downstream_loss = nn.CrossEntropyLoss()
 
