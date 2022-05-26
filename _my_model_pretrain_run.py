@@ -17,7 +17,7 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     m_device = init_train_module.init_device('gpu', 0)
     ###################################################################################################################
     # set the data set parameters
-    m_data_set_path = '.\\pik\\test_2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+    m_data_set_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
 
     in_token_len = trial.suggest_int('tokenlen', 32, 128)
     m_rnd_token, m_rnd_para = init_train_module.get_rnd_token_para(m_data_set_path,
@@ -31,7 +31,7 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     #           len(batch_size)
     # pre-train        1
     # other            3
-    m_epoch = 3
+    m_epoch = 512
     batch_size = [trial.suggest_int('bsz', 2, 2048), ]
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################
@@ -164,7 +164,7 @@ if __name__ == '__main__':
     # ###################################################################################################################
     # set the random seed
     data_time_str = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    m_train_mode = 'pretrain' # ('pretrain', 'train', 'test', 'finetune')
+    m_train_mode = 'pretrain'  # ('pretrain', 'train', 'test', 'finetune')
     # RANDOM_SEED = 42
     # np.random.seed(RANDOM_SEED)
     # torch.manual_seed(RANDOM_SEED)
@@ -176,8 +176,8 @@ if __name__ == '__main__':
 
     m_search_space = {
         # 'bsz': [2, 8, 32, 256, 512, 1024],
-        'bsz': [16, 32, 64, ],  # 2 - 2048
-        'tokenlen': [32, ],  # 32 - 128
+        'bsz': [64, ],  # 2 - 2048
+        'tokenlen': [48, 64, 72, 96, 128],  # 32 - 128
         'nlayer': [3, ],  # 1 - 24
         'nhead': [4, ],  # 1 - 32
         'nhid': [256, ],  # 2 - 2048
@@ -186,7 +186,7 @@ if __name__ == '__main__':
     m_pruner = optuna.pruners.NopPruner()
     m_direction = optuna.study.StudyDirection.MINIMIZE
 
-    study = optuna.create_study(sampler=m_sampler, pruner=m_pruner, direction=m_direction, study_name='Batch Size Study')
+    study = optuna.create_study(sampler=m_sampler, pruner=m_pruner, direction=m_direction)
     study.optimize(lambda trial: pretrain_func(trial, writer_dir, data_time_str, m_train_mode),
                    n_trials=n_trials, timeout=None, gc_after_trial=True)
     # get trials result

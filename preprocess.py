@@ -73,7 +73,7 @@ class MyMultiBertModelProcessing(object):
                  num_classes,
                  token_tuple: tuple,
                  rnd_para_dict: dict,
-                 params:tuple = None):
+                 params: tuple = None):
         """"""
         self.token_tuple = token_tuple
         self.num_classes = num_classes

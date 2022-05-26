@@ -542,9 +542,9 @@ class CAEMultiBert(nn.Module):
 
         # DownStream Head
         self.downstream_head = multi_bert_model.MyDownStreamHead(num_class=8,
-                                                                num_token=self.num_paras,
-                                                                embedding_token_dim=self.cae_hid,
-                                                                dropout=self.dropout)
+                                                                 num_token=self.num_paras,
+                                                                 embedding_token_dim=self.cae_hid,
+                                                                 dropout=self.dropout)
 
     def forward(self, x, y=None, train_mode:str=None):
         """"""

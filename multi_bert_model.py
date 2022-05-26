@@ -144,10 +144,10 @@ class CovTokenEmbedding(nn.Module):
             self.cov_blk.add_module(f'drop{i}', nn.Dropout(dropout))
 
         self.out_sz = None
-        self.out_sz = self.cal_out_sz()
+        self.out_sz = self.cal_out_sz(self.in_len)
 
-    def cal_out_sz(self):
-        tmp_in = self.in_len
+    def cal_out_sz(self, in_len):
+        tmp_in = in_len
         tmp_out = None
         for i, ksz_stride in enumerate(zip(self.ksz, self.stride)):
             tmp_out = ((tmp_in - ksz_stride[0]) / ksz_stride[-1]) + 1
@@ -261,8 +261,8 @@ class MyMultiBertModel(nn.Module):
         # self.mask_token_pred_loss = nn.MSELoss()
 
         # Next Parameter Prediction Head
-        self.next_para_pre_head =  NextParaPred(embedding_token_dim=self.embedding_dim,
-                                                dropout=self.dropout)
+        self.next_para_pre_head = NextParaPred(embedding_token_dim=self.embedding_dim,
+                                               dropout=self.dropout)
 
         # self.next_para_pre_loss = nn.CrossEntropyLoss()
 
