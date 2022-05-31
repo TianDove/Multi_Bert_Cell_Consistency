@@ -73,6 +73,7 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
             'rnd_para_dict': m_rnd_para
         }
         m_prepro = preprocess.MyMultiBertModelProcessing(**m_prepro_param)
+        num_in_token = m_prepro.cal_num_in_token()
 
         # preprocess parameter for baseline
         # m_preprocess_param = {
@@ -90,7 +91,8 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
             'max_num_token': 1,
             'n_layer': m_nlayer,
             'n_head': m_nhead,
-            'n_hid': m_nhid
+            'n_hid': m_nhid,
+            'num_token': num_in_token,
         }
         m_init_model = init_train_module.init_model(m_model, m_model_param, m_device)
 

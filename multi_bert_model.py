@@ -190,7 +190,7 @@ class MyMultiBertModel(nn.Module):
                  n_layer:int,
                  n_head: int,
                  n_hid: int,
-                 num_token:int = 41,
+                 num_token:int = None,
                  dropout: float = 0.1):
         """"""
         super(MyMultiBertModel, self).__init__()
@@ -205,7 +205,11 @@ class MyMultiBertModel(nn.Module):
         self.n_head = n_head
         self.n_hid = n_hid
         self.dropout = dropout
-        self.num_token = num_token
+
+        if num_token is not None:
+            self.num_token = num_token + 3 + max_num_seg - 1
+        else:
+            raise ValueError('Number of Input Token is None.')
 
         # scalar
         self.model_name = self.__class__.__name__

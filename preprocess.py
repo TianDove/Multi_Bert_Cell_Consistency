@@ -128,6 +128,19 @@ class MyMultiBertModelProcessing(object):
 
         return (temp_out_data_dict, temp_label_one_hot, rpl_label_onehot_tensor_device, train_mode)
 
+    def cal_num_in_token(self):
+        """"""
+        para_len = (161, 177, 247, 218, 218)
+        in_len = self.token_tuple[0]
+
+        num_in_token = 0
+        for t_len in para_len:
+            temp_tensor = torch.ones((1, t_len), dtype=torch.float32)
+            temp_tokens = self.tokenize_tensor(temp_tensor)
+            temp_num_token = temp_tokens.shape[1]
+            num_in_token = num_in_token + temp_num_token
+
+        return num_in_token
 
     def next_para_replace(self,
                           batch_data: dict,
@@ -279,3 +292,8 @@ class DDDOMProcessing():
         return [temp_data,
                 temp_label_one_hot.to(device),
                 train_mode]
+
+
+if __name__ == '__main__':
+    m_prepro = MyMultiBertModelProcessing(8, (48, False, 1), None)
+    m_prepro.cal_num_in_token()

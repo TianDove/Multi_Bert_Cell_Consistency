@@ -43,6 +43,8 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
     }
     m_prepro = preprocess.MyMultiBertModelProcessing(**m_prepro_param)
 
+    num_in_token = m_prepro.cal_num_in_token()
+
     # preprocess parameter for baseline
     # m_preprocess_param = {
     #     'num_classes': 8,
@@ -63,6 +65,7 @@ def pretrain_func(trial, trial_root_path, experiment_start_time, train_mode):
         'n_layer': trial.suggest_int('nlayer', 1, 24),
         'n_head': trial.suggest_int('nhead', 1, 32),
         'n_hid': trial.suggest_int('nhid', 2, 2048),
+        'num_token': num_in_token,
     }
 
     m_init_model = init_train_module.init_model(m_model, m_model_param, m_device)
@@ -177,7 +180,7 @@ if __name__ == '__main__':
     m_search_space = {
         # 'bsz': [2, 8, 32, 256, 512, 1024],
         'bsz': [64, ],  # 2 - 2048
-        'tokenlen': [48, 64, 72, 96, 128],  # 32 - 128
+        'tokenlen': [48, ],  # 64, 72, 96, 128],  # 32 - 128
         'nlayer': [3, ],  # 1 - 24
         'nhead': [4, ],  # 1 - 32
         'nhid': [256, ],  # 2 - 2048

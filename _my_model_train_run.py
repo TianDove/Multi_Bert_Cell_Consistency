@@ -211,7 +211,7 @@ if __name__ == '__main__':
 
     study = optuna.create_study(sampler=None, pruner=m_pruner, direction="maximize")
     study.optimize(lambda trial: train_func(trial, writer_dir, data_time_str),
-                   n_trials=n_trials, timeout=600, show_progress_bar=True)
+                   n_trials=n_trials, show_progress_bar=True)
     # get trials result
     exp_res = study.trials_dataframe()
     exp_res.to_csv(os.path.join(writer_dir, f'{data_time_str}_Trials_DataFrame.csv'))
