@@ -180,10 +180,10 @@ if __name__ == '__main__':
     m_search_space = {
         # 'bsz': [2, 8, 32, 256, 512, 1024],
         'bsz': [64, ],  # 2 - 2048
-        'tokenlen': [48, ],  # 64, 72, 96, 128],  # 32 - 128
+        'tokenlen': [96, ],  # 64, 72, 96, 128],  # 32 - 128
         'nlayer': [3, ],  # 1 - 24
         'nhead': [4, ],  # 1 - 32
-        'nhid': [256, ],  # 2 - 2048
+        'nhid': [128, ],  # 2 - 2048
     }
     m_sampler = optuna.samplers.GridSampler(search_space=m_search_space)
     m_pruner = optuna.pruners.NopPruner()

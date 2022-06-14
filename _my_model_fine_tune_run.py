@@ -13,12 +13,12 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
     m_device = init_train_module.init_device('gpu', 0)
     ###################################################################################################################
     # set the data set parameters
-    m_data_set_path = '.\\pik\\test_2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+    m_data_set_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
     m_train_mode = 'finetune'  # ('pretrain', 'train', 'test', 'finetune')
     # trial number
     current_trial_id = f'{m_train_mode}_trial_{trial.number}'
     ###################################################################################################################
-    m_model_step = 1
+    m_model_step = 64
     trials_pretrain = os.listdir(model_dir)
     for trial_pretrain_id, trial_pretrain_name in enumerate(trials_pretrain):
         temp_trial_pretrain_path = os.path.join(model_dir, trial_pretrain_name)
@@ -87,8 +87,8 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
             'device': m_device,
             'token_len': m_prepro_param['token_tuple'][0],
             'rnd_token': m_rnd_token,
-            'max_num_seg': 1,
-            'max_num_token': 1,
+            'max_num_seg': 5,
+            'max_num_token': 100,
             'n_layer': m_nlayer,
             'n_head': m_nhead,
             'n_hid': m_nhid,
@@ -131,7 +131,7 @@ def fine_tune_func(trial, trial_root_path, model_dir, experiment_start_time):
         ###################################################################################################################
         m_trainer = init_train_module.Model_Run(device=m_device,
                                                 train_mode=m_train_mode,
-                                                num_epoch=2,
+                                                num_epoch=256,
                                                 data_loader=m_data_loader_dict,
                                                 preprocessor=m_prepro,
                                                 model=m_init_model,
@@ -185,7 +185,7 @@ if __name__ == '__main__':
     ####################################################################################################################
     writer_dir = '.\\log'
     # set model path for finetune
-    model_dir = '.\\log\\pretrain\\20220517-084346\\'
+    model_dir = '.\\log\\exp\\model_param\\n_layer\\pretrain'
     ###################################################################################################################
 
     n_trials = 1

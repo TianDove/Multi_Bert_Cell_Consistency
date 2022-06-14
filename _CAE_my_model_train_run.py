@@ -17,7 +17,7 @@ def train_func(trial, trial_root_path, experiment_start_time, train_mode):
     m_device = init_train_module.init_device('gpu', 0)
     ###################################################################################################################
     # set the data set parameters
-    m_data_set_path = '.\\pik\\test_2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
+    m_data_set_path = '.\\pik\\2022-03-05-13-36-24_Cell_set_MinMax_pad_labels_formed.pickle'
 
     in_token_len = trial.suggest_int('tokenlen', 32, 128)
 
@@ -28,7 +28,7 @@ def train_func(trial, trial_root_path, experiment_start_time, train_mode):
     #           len(batch_size)
     # pre-train        1
     # other            3
-    m_epoch = 3
+    m_epoch = 512
     batch_size = [trial.suggest_int('bsz', 2, 2048), 100, 100]
     m_data_loader_dict = init_train_module.init_data_loader_dict(m_data_set_path, m_train_mode, batch_size)
     ###################################################################################################################

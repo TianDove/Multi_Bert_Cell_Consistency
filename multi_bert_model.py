@@ -574,6 +574,7 @@ class MyMultiBertModel(nn.Module):
 
     def set_model_attr(self, model_attr_dict):
         """"""
+        del model_attr_dict['downstream_head']  # avoid downstream_head override
         for attr, val in model_attr_dict.items():
             setattr(self, attr, val)
 
